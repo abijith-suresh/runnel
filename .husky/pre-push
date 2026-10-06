@@ -1,0 +1,7 @@
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = refs/heads/main ] && [ "$remote_sha" != 0000000000000000000000000000000000000000 ]; then
+    echo "Create a development branch and open a pull request; direct pushes to existing main are blocked." >&2
+    exit 1
+  fi
+done
+npm run verify

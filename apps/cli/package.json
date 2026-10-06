@@ -1,0 +1,49 @@
+{
+  "name": "@abijith-suresh/runnel",
+  "version": "0.0.1",
+  "description": "Runnel development baseline. Planned functionality is not implemented.",
+  "type": "module",
+  "license": "MIT",
+  "author": "abijith-suresh",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abijith-suresh/runnel.git",
+    "directory": "apps/cli"
+  },
+  "homepage": "https://github.com/abijith-suresh/runnel#readme",
+  "bugs": {
+    "url": "https://github.com/abijith-suresh/runnel/issues"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --project tsconfig.typecheck.json",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@abijith-suresh/runnel-core": "0.0.1",
+    "@abijith-suresh/runnel-mongodb": "0.0.1",
+    "effect": "4.0.1"
+  },
+  "bin": {
+    "runnel": "dist/cli.js"
+  }
+}

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  npm-quality:
+    name: npm quality
+    uses: abijith-suresh/workflows/.github/workflows/npm-quality.yml@0424bd486ad1c3e0bbb4d206886dec114872eb68 # shared root contract
+    permissions:
+      contents: read
+
+  pr-title:
+    name: PR title
+    if: github.event_name == 'pull_request'
+    uses: abijith-suresh/workflows/.github/workflows/conventional-commit-title.yml@0424bd486ad1c3e0bbb4d206886dec114872eb68 # shared title policy
+    permissions:
+      pull-requests: read
+
+  changeset-policy:
+    name: Patch release policy
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout complete PR history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install pinned npm and dependencies
+        run: |
+          npm install --global npm@11.16.0
+          npm ci --ignore-scripts
+      - name: Validate Changesets and actual version diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: npm run changeset:check
+
+  baseline-verified:
+    name: Baseline verified
+    if: always()
+    needs: [npm-quality, pr-title, changeset-policy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require successful verification
+        env:
+          EVENT: ${{ github.event_name }}
+          QUALITY: ${{ needs.npm-quality.result }}
+          TITLE: ${{ needs.pr-title.result }}
+          POLICY: ${{ needs.changeset-policy.result }}
+        run: |
+          set -euo pipefail
+          test "$QUALITY" = success
+          if [[ "$EVENT" == pull_request ]]; then
+            test "$TITLE" = success
+            test "$POLICY" = success
+          fi
