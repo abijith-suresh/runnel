@@ -1,6 +1,6 @@
 {
   "name": "@abijith-suresh/runnel",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "CLI for Runnel. Help and version are implemented; database commands are planned.",
   "type": "module",
   "license": "MIT",
@@ -40,8 +40,8 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@abijith-suresh/runnel-core": "0.0.1",
-    "@abijith-suresh/runnel-mongodb": "0.0.1",
+    "@abijith-suresh/runnel-core": "0.0.2",
+    "@abijith-suresh/runnel-mongodb": "0.0.2",
     "effect": "4.0.1"
   },
   "bin": {

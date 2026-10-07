@@ -1,6 +1,6 @@
 {
   "name": "@abijith-suresh/runnel-mongodb",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Runnel development baseline. Planned functionality is not implemented.",
   "type": "module",
   "license": "MIT",
@@ -39,7 +39,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@abijith-suresh/runnel-core": "0.0.1",
+    "@abijith-suresh/runnel-core": "0.0.2",
     "effect": "4.0.1",
     "mongodb": "7.7.0"
   }
