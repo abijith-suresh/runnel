@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { gitEnvironment } from "./git-environment.mjs";
 import {
   checkPullRequest,
   nextPatch,
@@ -78,6 +79,7 @@ function fixture(t, pending = false) {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      env: gitEnvironment(),
     }).trim();
   git("init", "-b", "main");
   git("config", "user.name", "Policy test");
@@ -160,17 +162,23 @@ test("a manual patch bump without consumed Changesets is rejected", (t) => {
 
 test("the guarded Changesets command produces a valid aligned version PR", (t) => {
   const f = fixture(t, true);
-  for (const path of ["scripts/release-policy.mjs", "scripts/version-packages.mjs"]) {
+  for (const path of [
+    "scripts/git-environment.mjs",
+    "scripts/release-policy.mjs",
+    "scripts/version-packages.mjs",
+  ]) {
     f.write(path, readFileSync(resolve(path), "utf8"));
   }
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   execFileSync(npm, ["ci", "--ignore-scripts", "--offline", "--no-audit", "--no-fund"], {
     cwd: f.root,
+    env: gitEnvironment(),
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 60000,
   });
   execFileSync(process.execPath, ["scripts/version-packages.mjs"], {
     cwd: f.root,
+    env: gitEnvironment(),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 60000,

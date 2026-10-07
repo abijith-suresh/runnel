@@ -40,8 +40,10 @@ imports from core. Markdown is reviewed as prose; Biome does not format it.
 
 Husky, lint-staged, and commitlint follow Outpost's local workflow. CI reuses the
 owner's shared quality and title workflows. The local release policy and tests
-validate Changesets and actual Git version diffs. Packaging verification checks
-exports, declarations, executable destinations and shebang, then installs local
+validate Changesets and actual Git version diffs. Temporary policy fixtures clear
+inherited Git variables so hooks in a worktree cannot redirect fixture commands
+to the caller's repository. Packaging verification checks exports, declarations,
+executable destinations and shebang, then installs local
 tarballs outside the workspace and checks module resolution.
 
 Core behavior tests use Node's test runner and `.mts` files, checked with the same
