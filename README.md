@@ -8,9 +8,10 @@ Core now implements database target selection from supplied in-memory names.
 It requires an explicit environment and infers a database only when that
 environment has exactly one alias. No database access, credential storage,
 catalog storage, daemon, worker, script runner, provider behavior, or MCP server
-exists. The compiled CLI prints a baseline notice to stderr and exits with status
-1 for every invocation. All CLI commands in the design documents remain planned,
-including setup, discovery, help, and version commands.
+exists. The CLI supports `--help` and `--version`; running it with no arguments
+shows help. All database commands in the design documents remain planned,
+including setup and discovery. See [CLI usage](apps/cli/README.md) for the
+implemented flags and local development commands.
 
 ## Development
 

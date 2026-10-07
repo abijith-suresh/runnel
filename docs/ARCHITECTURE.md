@@ -19,8 +19,8 @@ Core declares Effect v4. MongoDB declares core, Effect v4, and the official
 MongoDB driver. CLI declares core, MongoDB, and Effect v4. These dependencies
 reserve the agreed boundaries; no provider adapter or provider contracts exist
 yet. Core exports database target selection. The MongoDB and CLI library entry
-points still export empty modules. The executable writes a baseline notice and
-sets exit status 1. It has no parser or implemented commands.
+points still export empty modules. The executable supports help/version flags
+only. No database commands are implemented.
 
 All workspaces are publishable with public access and fixed, aligned versions.
 The CLI uses ordinary package dependencies rather than bundling. The future
@@ -46,8 +46,8 @@ to the caller's repository. Packaging verification checks exports, declarations,
 executable destinations and shebang, then installs local
 tarballs outside the workspace and checks module resolution.
 
-Core behavior tests use Node's test runner and `.mts` files, checked with the same
-strict TypeScript settings as source. `npm run verify` runs them along with release
+Core and CLI behavior tests use Node's test runner and `.mts` files, checked with
+the same strict TypeScript settings as source. `npm run verify` runs them along with release
 policy tests. There are no database fixtures. Verification imports dependency
 modules without creating clients or accessing credentials. No package is
 published by a development command or CI workflow.
@@ -68,3 +68,20 @@ does not trim or change case, and explicit empty strings do not trigger defaults
 The error tags describe core selection failures. They are not a finalized CLI or
 IPC JSON envelope. The function performs no I/O and does not mutate supplied names
 or the request. No CLI command uses it yet.
+
+## CLI information flags
+
+The executable uses Node's built-in `parseArgs` for `--help`/`-h` and
+`--version`/`-v`. No arguments show help. Help takes precedence when both flags
+are supplied. Success writes to stdout and exits with status 0. Unknown flags,
+positional commands, and malformed options produce a concise stderr diagnostic
+and exit with status 1, without echoing the supplied arguments.
+
+Version output reads the owning package's `package.json` relative to the compiled
+entry point, independently of the working directory. It reflects the installed
+artifact's version after Changesets updates metadata. Missing or invalid version
+metadata produces a stderr diagnostic and status 1 when the executable can load.
+
+These small process and package-metadata boundaries use Node APIs directly. No
+database dependencies, catalog, or daemon are initialized. Output envelopes for
+future database commands remain a design task; help/version use plain text.
