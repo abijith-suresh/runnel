@@ -2,9 +2,10 @@
 
 ## Scope and sources of truth
 
-Runnel currently contains a development baseline. Product work needs a subsequent
-explicit task. Do not turn planned examples into implemented commands while
-maintaining this baseline.
+Runnel currently implements in-memory database target selection in core. The CLI
+and MongoDB adapter remain packaging stubs. Additional product work needs an
+explicit task. Do not turn planned examples into implemented commands as part of
+an unrelated change.
 
 | Document or code | Responsibility |
 | --- | --- |
@@ -43,6 +44,7 @@ promise that a feature already exists. Preserve that distinction in prose.
 - Update the document that owns the changed truth. Keep prose plain and mark
   proposals, examples, and unresolved decisions as planned.
 
-The baseline must not implement credentials, catalog persistence, database access,
-daemon/worker behavior, provider behavior, scripts, MCP, or another provider.
-Only the minimal package and CLI entry points needed to validate packaging exist.
+The current scope does not include credentials, catalog persistence, database
+access, daemon/worker behavior, provider behavior, scripts, MCP, or another provider.
+Core selects environment and database alias names from supplied in-memory names.
+The adapter and CLI have only the minimal entry points needed to validate packaging.

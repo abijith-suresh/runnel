@@ -1,8 +1,11 @@
 # Agreed product design
 
-Everything in this document is **planned**. The development baseline implements
-none of these product behaviors. This document preserves the decisions from the
-initial discussion so later tasks can build from them without reconstructing it.
+This document records the agreed product design. Core now implements in-memory
+environment and database alias selection, described in
+[the current architecture](ARCHITECTURE.md#database-target-selection). CLI commands
+and all other product behavior below remain **planned**. The document preserves
+the decisions from the initial discussion so later tasks can build from them
+without reconstructing it.
 
 ## Purpose and scope
 

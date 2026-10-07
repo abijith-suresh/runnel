@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import parse from "@changesets/parse";
+import { gitEnvironment } from "./git-environment.mjs";
 
 export const packages = [
   { name: "@abijith-suresh/runnel-core", directory: "packages/core" },
@@ -121,7 +122,8 @@ export function validateRepository(root = process.cwd()) {
 export function checkPullRequest(root, base, head) {
   if (!/^[a-f\d]{40}$/.test(base ?? "") || !/^[a-f\d]{40}$/.test(head ?? ""))
     fail("BASE_SHA and HEAD_SHA must be full commit SHAs");
-  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8", env: gitEnvironment() });
   const at = (ref, file) => git("show", `${ref}:${file}`);
   const snapshots = [base, head].map((ref) =>
     packages.map((pkg) => JSON.parse(at(ref, `${pkg.directory}/package.json`)))
