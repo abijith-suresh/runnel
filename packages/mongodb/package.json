@@ -1,7 +1,7 @@
 {
   "name": "@abijith-suresh/runnel-mongodb",
   "version": "0.0.2",
-  "description": "Runnel development baseline. Planned functionality is not implemented.",
+  "description": "MongoDB connection pools for the Runnel worker",
   "type": "module",
   "license": "MIT",
   "author": "abijith-suresh",
@@ -35,8 +35,9 @@
   },
   "scripts": {
     "build": "tsc --build",
-    "typecheck": "tsc --project tsconfig.typecheck.json",
-    "prepack": "npm run build"
+    "typecheck": "tsc --project tsconfig.typecheck.json && tsc --project tsconfig.test.json",
+    "prepack": "npm run build",
+    "test": "npm run build && node --test test/*.test.mts"
   },
   "dependencies": {
     "@abijith-suresh/runnel-core": "0.0.2",

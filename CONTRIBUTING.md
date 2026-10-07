@@ -21,7 +21,7 @@ npm run verify
 | `npm run format` | Writes Biome formatting |
 | `npm run format:check` | Checks Biome formatting |
 | `npm run test:policy` | Tests Changeset parsing, version increments, and Git PR diffs |
-| `npm run test` | Runs core and CLI behavior tests with Node's test runner and typed `.mts` tests |
+| `npm run test` | Runs workspace behavior tests with Node's test runner and typed `.mts` tests |
 | `npm run release-policy` | Checks current Changesets, package boundaries, versions, and lockfile |
 | `npm run changeset` | Adds a release note through Changesets |
 | `npm run changeset:status` | Shows Changesets' pending release plan |

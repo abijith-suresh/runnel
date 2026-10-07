@@ -24,7 +24,9 @@ stdout, with `ok: true` and `data`, or `ok: false` and a structured `error`.
 Discovery errors exit with status 1. `connections` and `databases` require an
 explicit `-e`/`--env`. They list configured mappings without connecting to a
 database or reading credentials. Connection output omits secret references.
-Setup and database operations remain planned. The library entry point still exports an empty
+Setup and user-facing database operations remain planned. Internal worker helpers
+now inspect connections and list collections with warm MongoDB pools; no CLI
+command starts the worker yet. The library entry point still exports an empty
 module; there is no public CLI composition API.
 
 For local development, build at the repository root and invoke the compiled CLI:

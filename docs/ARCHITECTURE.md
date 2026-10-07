@@ -18,11 +18,11 @@ apps/cli -> packages/mongodb -> packages/core
 Core declares Effect v4. MongoDB declares core, Effect v4, and the official
 MongoDB driver. CLI declares core, MongoDB, Effect v4, `proper-lockfile`, and
 `@napi-rs/keyring`. The latter two own cross-process catalog locking and native
-credential access. These dependencies
-reserve the agreed boundaries; no provider adapter or provider contracts exist
-yet. Core exports database target selection. The MongoDB and CLI library entry
-points still export empty modules. The executable supports help/version and
-offline catalog discovery. No database operations are implemented.
+credential access. Core exports database target selection; provider contracts
+remain future work. MongoDB exports its worker-local pool manager. The CLI library
+entry point still exports an empty module. The executable supports help/version
+and offline catalog discovery. Internal worker operations inspect connections and
+list collections, but no CLI database commands exist yet.
 
 All workspaces are publishable with public access and fixed, aligned versions.
 The CLI uses ordinary package dependencies rather than bundling. The future
@@ -48,10 +48,12 @@ to the caller's repository. Packaging verification checks exports, declarations,
 executable destinations and shebang, then installs local
 tarballs outside the workspace and checks module resolution.
 
-Core and CLI behavior tests use Node's test runner and `.mts` files, checked with
+Workspace behavior tests use Node's test runner and `.mts` files, checked with
 the same strict TypeScript settings as source. `npm run verify` runs them along with release
-policy tests. There are no database fixtures. Verification imports dependency
-modules without creating clients or accessing credentials. No package is
+policy tests. Normal verification uses injected clients and synthetic worker
+processes, plus a real worker that rejects missing names and malformed URIs
+without DB access. It needs no MongoDB server or credential service. Separate
+integration probes use synthetic data in a local Podman MongoDB instance. No package is
 published by a development command or CI workflow.
 
 ## Database target selection
@@ -69,7 +71,8 @@ does not trim or change case, and explicit empty strings do not trigger defaults
 
 The error tags describe core selection failures. They are not a finalized CLI or
 IPC JSON envelope. The function performs no I/O and does not mutate supplied names
-or the request. No CLI command uses it yet.
+or the request. The internal worker uses it before credential lookup; no CLI
+database command uses it yet.
 
 ## CLI information flags
 
@@ -165,3 +168,50 @@ checks also load the native binding without constructing an entry.
 These helpers are internal to the CLI and do not add setup or database commands.
 Native Linux round-trip checks use a temporary catalog and synthetic secrets.
 Native Windows checks are still planned.
+
+## Persistent worker and MongoDB pools
+
+The internal CLI supervisor lazily forks `worker.js` over Node's private IPC
+channel. Requests and results are JSON application values validated with Effect
+v4 Schema. Unknown fields, invalid shapes, and messages over 1 MiB fail. Native
+clients, databases, and cursors stay inside the worker. Child stdout and stderr
+are discarded so dependency diagnostics cannot contaminate command output.
+No detached daemon or client transport exists yet.
+
+The supervisor retains one worker and dispatches one application operation at a
+time. At most 32 additional operations can wait. It snapshots requests before
+queueing them. Startup has a 10-second deadline. Internal operations default to a
+15-second active deadline; queue waiting does not consume it, and zero disables
+it. These are worker infrastructure defaults, not the planned script deadline.
+Reset, stop, a crash, and protocol failure discard active and queued requests
+without replay. A timed-out active request reports `OperationTimedOut`; its queued
+requests report `WorkerRestarted`. Later requests may start a fresh worker after
+the old process exits. Stop permanently closes that supervisor. Shutdown sends
+SIGTERM, then SIGKILL after one second if needed. Pool and module state disappears
+with the process. An abandoned worker exits when its parent IPC channel closes.
+
+The worker reads the current catalog and resolves environment/database names
+before reading the OS credential. It uses a connection key containing the
+environment and connection name. MongoDB's pool manager shares one client across
+that connection's aliases. Independent registrations get independent clients.
+The driver connects lazily. Client creation uses app name `runnel`, pool size 10,
+minimum pool size zero, and 10-second connection/server-selection timeouts.
+Changing the stored URI closes and replaces its client. Failed closes remain
+tracked for a later replacement or shutdown attempt. Shutdown rejects new
+acquisition and removes clients only after successful close. Pool creation, replacement,
+and shutdown serialize even if future scripts connect in parallel. Only acquisition
+serializes; operations on acquired native handles can run in parallel.
+
+Two internal operations currently exist. `inspect` lists databases accessible to
+a supplied setup URI with a temporary client, then closes it. `list` resolves a
+named target and lists collections using its retained client. Results include at
+most 1,000 names and an explicit `truncated` flag. Collection cursors close on
+success and failure. Driver operations have a 10-second timeout. Invalid URIs,
+authentication failures, permission denials, and connectivity failures have safe
+structured categories. Other driver failures use a generic error; raw messages,
+stacks, URIs, and document-bearing diagnostics never cross IPC.
+
+These operations are internal building blocks for upcoming setup and database
+commands. There is no CLI integration, history, script execution, daemon idle
+timer, or public IPC protocol yet. Native Windows process behavior has not been
+validated on Windows.

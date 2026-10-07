@@ -4,8 +4,9 @@ This document records the agreed product design. Core now implements in-memory
 environment and database alias selection, described in
 [the current architecture](ARCHITECTURE.md#database-target-selection). The CLI also
 implements help/version flags, offline catalog discovery, and internal catalog
-and credential storage helpers. Database operations and other product behavior
-below remain **planned**. The document preserves
+and credential storage helpers. Internal worker supervision, MongoDB pools,
+connection inspection, and collection listing are also implemented. User-facing
+database commands and other product behavior below remain **planned**. The document preserves
 the decisions from the initial discussion so later tasks can build from them
 without reconstructing it.
 
@@ -64,8 +65,9 @@ different environments in parallel.
 The prior research thread was `mcp:4498efc8-20cb-44e4-9be9-b42471eff35a`, titled
 "Runnel: research JavaScript script execution". Its recommendation supports
 this single persistent worker architecture, local native driver handles, and
-explicit resets. That recommendation is preserved here; the baseline does not
-implement or repeat the research.
+explicit resets. The internal worker now follows that ownership and queueing
+model. Daemon startup, idle shutdown, script execution, and user-facing reset
+commands remain planned.
 
 ## Scripts
 
