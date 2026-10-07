@@ -9,8 +9,9 @@ It requires an explicit environment and infers a database only when that
 environment has exactly one alias. The CLI supports help/version and offline
 discovery of configured environments, connections, and database aliases from a
 validated user-wide catalog. Running it with no arguments shows help.
-Setup, credential storage, database access, catalog writes, daemon/worker behavior,
-scripts, provider behavior, and MCP remain planned. See
+Internal storage helpers now support catalog updates and native OS credentials.
+Human setup, database access, daemon/worker behavior, scripts, provider behavior,
+and MCP remain planned. See
 [CLI usage](apps/cli/README.md) for implemented commands and
 [the development milestone](docs/DEVELOPMENT.md) for ongoing work.
 

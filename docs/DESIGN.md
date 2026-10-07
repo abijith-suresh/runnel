@@ -3,7 +3,8 @@
 This document records the agreed product design. Core now implements in-memory
 environment and database alias selection, described in
 [the current architecture](ARCHITECTURE.md#database-target-selection). The CLI also
-implements help/version flags and offline catalog discovery. Database operations and other product behavior
+implements help/version flags, offline catalog discovery, and internal catalog
+and credential storage helpers. Database operations and other product behavior
 below remain **planned**. The document preserves
 the decisions from the initial discussion so later tasks can build from them
 without reconstructing it.
@@ -32,8 +33,9 @@ a physical database name. Commands use those names rather than credentials.
 Connection strings belong in OS credential storage. The catalog contains only
 secret references. Human setup prompts for a hidden URI, lists accessible
 databases, and lets the human choose and name aliases. Manual database entry
-remains possible. The OS credential library and catalog persistence mechanism
-have not been chosen or implemented.
+remains possible. The CLI uses `@napi-rs/keyring` for native credential storage and
+validated JSON with serialized atomic replacement for catalog updates. These
+internal helpers exist; the interactive human setup flow is still planned.
 
 Every database command requires `-e` or `--env`. Infer `-d` or `--db` only when
 that environment has exactly one database alias. Do not put a `mongo` prefix in
@@ -140,7 +142,8 @@ runnel daemon stop
 
 The CLI reader now validates this version 1 shape. See
 [the implemented constraints](ARCHITECTURE.md#catalog-and-offline-discovery).
-Writing, migration, and operational settings remain future work. Names and the
+An internal update helper validates and writes this shape. Migration and
+operational settings remain future work. Names and the
 secret reference below are illustrative; there is no actual connection string.
 
 ```json

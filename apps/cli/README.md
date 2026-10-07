@@ -49,5 +49,7 @@ The catalog is `catalog.json` under `$XDG_CONFIG_HOME/runnel` or
 `RUNNEL_HOME` overrides that directory for isolated testing. A missing catalog
 returns empty discovery results. Invalid or unreadable catalogs fail; they do
 not silently become empty. The CLI currently reads only. Human setup will create
-the catalog in a subsequent change. Its schema is documented in
+the catalog in a subsequent change. Internal atomic catalog-write and native
+credential helpers are implemented, but have no standalone CLI command.
+Its schema is documented in
 [the current architecture](../../docs/ARCHITECTURE.md#catalog-and-offline-discovery).
