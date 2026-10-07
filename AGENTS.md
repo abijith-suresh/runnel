@@ -3,7 +3,8 @@
 ## Scope and sources of truth
 
 Runnel currently implements in-memory database target selection in core and CLI
-help/version flags and offline catalog discovery. The MongoDB adapter remains a packaging stub. Additional
+help/version flags and offline catalog discovery. The MongoDB adapter now owns
+worker-local connection pools. Additional
 product work needs an explicit task. Do not turn planned examples into implemented commands as part of
 an unrelated change.
 
@@ -51,7 +52,9 @@ guarded patch version PR after every three merged feature PRs. Publication, MCP,
 and other providers are outside that milestone.
 
 Current behavior includes core names-only target selection and CLI help/version
-and offline catalog discovery, with internal catalog-write and OS credential
-helpers. Human setup, database operations, daemon/worker behavior, and scripts
-are not implemented yet. Keep this status and
+and offline catalog discovery, with internal catalog-write, OS credential, and
+persistent worker helpers. The worker owns native MongoDB handles, inspects
+connections, and lists collections. The supervisor queues one operation at a time
+and resets without replay. No CLI database command, human setup flow, daemon,
+or script runner is implemented yet. Keep this status and
 the owning documents accurate as each slice lands.

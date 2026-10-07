@@ -19,11 +19,14 @@ repository credential or release workflow is required.
 ## Progress and remaining work
 
 - Implemented: core target selection, CLI help/version, catalog validation and offline discovery,
-  internal serialized catalog updates, and native OS secret storage helpers.
+  internal serialized catalog updates, native OS secret storage helpers, and a
+  persistent worker supervisor with warm MongoDB pools, connection inspection,
+  and collection listing. Worker operations are not exposed as CLI commands yet.
 - Planned: hidden human setup,
   accessible database discovery, and manual alias registration.
-- Planned: daemon supervision, one persistent worker with local native driver
-  handles and warm pools, operation queueing, reset/stop/status, and idle shutdown.
+- Planned: daemon startup and client transport, user-facing reset/stop/status,
+  and idle shutdown. The internal worker already queues operations and supports
+  reset/stop/status with no automatic replay.
 - Planned: list, describe, find, count, aggregate, bounded JSON/EJSON results,
   structured errors, and sanitized local operation history.
 - Planned: attached JavaScript scripts with native `db`, cross-environment

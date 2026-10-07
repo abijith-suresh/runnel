@@ -81,6 +81,37 @@ try {
     { cwd: consumer, encoding: "utf8" }
   );
   assert.equal(imports.status, 0, imports.stderr);
+  const worker = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import assert from 'node:assert/strict';
+       import { createWorkerSupervisor } from './node_modules/@abijith-suresh/runnel/dist/worker-supervisor.js';
+       const worker = createWorkerSupervisor(process.env.RUNNEL_HOME);
+       try {
+         const first = await worker.execute({ operation: 'list' });
+         assert.equal(first.ok, false);
+         assert.equal(first.error.code, 'EnvironmentRequired');
+         const pid = worker.status().pid;
+         const second = await worker.execute({ operation: 'list', env: 'unknown' });
+         assert.equal(second.ok, false);
+         assert.equal(second.error.code, 'EnvironmentNotFound');
+         assert.equal(worker.status().pid, pid);
+         await worker.reset();
+         const third = await worker.execute({ operation: 'list' });
+         assert.equal(third.error.code, 'EnvironmentRequired');
+         assert.notEqual(worker.status().pid, pid);
+       } finally { await worker.stop(); }`,
+    ],
+    {
+      cwd: consumer,
+      env: { ...process.env, RUNNEL_HOME: join(temporary, "empty-worker-catalog") },
+      encoding: "utf8",
+      timeout: 30000,
+    }
+  );
+  assert.equal(worker.status, 0, worker.stderr);
   const executable = join(consumer, "node_modules/@abijith-suresh/runnel/dist/cli.js");
   const cli = spawnSync(process.execPath, [executable, "--help"], {
     cwd: consumer,
@@ -115,7 +146,7 @@ try {
   assert.equal(unsupported.stdout, "");
   assert.match(unsupported.stderr, /Unsupported arguments/);
   process.stdout.write(
-    "All three npm pack dry runs, isolated tarball installs, imports, and CLI entry point passed\n"
+    "All three npm pack dry runs, isolated tarball installs, imports, CLI entry point, and worker lifecycle passed\n"
   );
 } finally {
   rmSync(temporary, { recursive: true, force: true });
