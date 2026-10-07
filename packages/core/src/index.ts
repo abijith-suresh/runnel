@@ -1,2 +1,7 @@
-// Packaging entry point. Provider contracts and application concepts are not implemented.
-export {};
+export {
+  type DatabaseAliasesByEnvironment,
+  type DatabaseTarget,
+  type DatabaseTargetRequest,
+  resolveDatabaseTarget,
+  type TargetSelectionError,
+} from "./target.js";

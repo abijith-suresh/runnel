@@ -25,8 +25,9 @@
     "release-policy": "node scripts/release-policy.mjs",
     "version:packages": "node scripts/version-packages.mjs",
     "test:policy": "node --test scripts/*.test.mjs",
+    "test": "npm run test --workspaces --if-present",
     "pack:check": "npm run build && node scripts/pack-check.mjs",
-    "verify": "npm run release-policy && npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:policy && npm run pack:check",
+    "verify": "npm run release-policy && npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:policy && npm run test && npm run pack:check",
     "prepare": "husky"
   },
   "lint-staged": {

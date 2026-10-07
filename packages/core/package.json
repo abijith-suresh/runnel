@@ -1,7 +1,7 @@
 {
   "name": "@abijith-suresh/runnel-core",
   "version": "0.0.1",
-  "description": "Runnel development baseline. Planned functionality is not implemented.",
+  "description": "Shared application concepts and database target selection for Runnel.",
   "type": "module",
   "license": "MIT",
   "author": "abijith-suresh",
@@ -35,7 +35,8 @@
   },
   "scripts": {
     "build": "tsc --build",
-    "typecheck": "tsc --project tsconfig.typecheck.json",
+    "typecheck": "tsc --project tsconfig.typecheck.json && tsc --project tsconfig.test.json",
+    "test": "npm run build && node --test test/*.test.mts",
     "prepack": "npm run build"
   },
   "dependencies": {

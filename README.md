@@ -4,11 +4,13 @@ Runnel is planned as agent-first named database access. Humans will register
 credentials and name targets; agents will use short commands without supplying
 connection strings.
 
-This repository contains the **development baseline only**. No database access,
-credential storage, catalog, daemon, worker, script runner, provider behavior, or
-MCP server exists. The compiled CLI prints a baseline notice to stderr and exits
-with status 1 for every invocation. All commands in the design documents are
-planned, including setup, discovery, help, and version commands.
+Core now implements database target selection from supplied in-memory names.
+It requires an explicit environment and infers a database only when that
+environment has exactly one alias. No database access, credential storage,
+catalog storage, daemon, worker, script runner, provider behavior, or MCP server
+exists. The compiled CLI prints a baseline notice to stderr and exits with status
+1 for every invocation. All CLI commands in the design documents remain planned,
+including setup, discovery, help, and version commands.
 
 ## Development
 
@@ -20,8 +22,9 @@ npm run verify
 ```
 
 `verify` checks release policy, formatting, lint, builds, strict typechecking,
-release-policy tests, and package distribution. The packaging check runs npm
-pack dry runs and installs all three tarballs in a temporary local consumer.
+release-policy tests, workspace behavior tests, and package distribution. The
+packaging check runs npm pack dry runs and installs all three tarballs in a
+temporary local consumer.
 It does not publish or install anything globally.
 
 | Workspace | Package | Intended ownership |
