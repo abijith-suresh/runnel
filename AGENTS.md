@@ -51,6 +51,7 @@ guarded patch version PR after every three merged feature PRs. Publication, MCP,
 and other providers are outside that milestone.
 
 Current behavior includes core names-only target selection and CLI help/version
-and offline catalog discovery. Catalog writes, credentials, database operations,
-daemon/worker behavior, and scripts are not implemented yet. Keep this status and
+and offline catalog discovery, with internal catalog-write and OS credential
+helpers. Human setup, database operations, daemon/worker behavior, and scripts
+are not implemented yet. Keep this status and
 the owning documents accurate as each slice lands.

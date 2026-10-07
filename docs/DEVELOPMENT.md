@@ -18,8 +18,9 @@ repository credential or release workflow is required.
 
 ## Progress and remaining work
 
-- Implemented: core target selection, CLI help/version, catalog validation and offline discovery.
-- Planned: safe catalog writes, native OS secret storage, hidden human setup,
+- Implemented: core target selection, CLI help/version, catalog validation and offline discovery,
+  internal serialized catalog updates, and native OS secret storage helpers.
+- Planned: hidden human setup,
   accessible database discovery, and manual alias registration.
 - Planned: daemon supervision, one persistent worker with local native driver
   handles and warm pools, operation queueing, reset/stop/status, and idle shutdown.

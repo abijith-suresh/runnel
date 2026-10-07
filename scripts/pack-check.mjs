@@ -76,7 +76,7 @@ try {
     [
       "--input-type=module",
       "-e",
-      "await import('@abijith-suresh/runnel-core'); await import('@abijith-suresh/runnel-mongodb'); await import('@abijith-suresh/runnel'); await import('effect'); await import('mongodb');",
+      "await import('@abijith-suresh/runnel-core'); await import('@abijith-suresh/runnel-mongodb'); await import('@abijith-suresh/runnel'); await import('effect'); await import('mongodb'); await import('@napi-rs/keyring'); await import('proper-lockfile');",
     ],
     { cwd: consumer, encoding: "utf8" }
   );

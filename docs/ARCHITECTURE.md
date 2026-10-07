@@ -16,7 +16,9 @@ apps/cli -> packages/mongodb -> packages/core
 ```
 
 Core declares Effect v4. MongoDB declares core, Effect v4, and the official
-MongoDB driver. CLI declares core, MongoDB, and Effect v4. These dependencies
+MongoDB driver. CLI declares core, MongoDB, Effect v4, `proper-lockfile`, and
+`@napi-rs/keyring`. The latter two own cross-process catalog locking and native
+credential access. These dependencies
 reserve the agreed boundaries; no provider adapter or provider contracts exist
 yet. Core exports database target selection. The MongoDB and CLI library entry
 points still export empty modules. The executable supports help/version and
@@ -98,7 +100,8 @@ The reader implements schema version 1 from the design example. It requires
 Each environment has `connections` and `databases`. A connection has provider
 `mongodb` and a `keyring:runnel/<identifier>` secret reference. A database alias
 has a connection name within that environment and a physical database name.
-No credential is stored in this file. There is no writer or migration yet.
+No credential is stored in this file. An internal writer now updates the catalog;
+human setup and migration remain planned.
 
 Effect v4 Schema validates every field and rejects extra properties. Environment,
 connection, and alias names use 1 to 64 ASCII letters, digits, underscores, or
@@ -118,3 +121,47 @@ failure is `{ "ok": false, "error": { "code": ..., "message": ... } }` and exits
 with status 1. Connection results omit credential references. These commands
 need no credential service, provider, daemon, or database connection. Core's
 names-only target resolver remains separate from the persisted CLI schema.
+
+## Catalog updates and credentials
+
+The internal `updateCatalog` helper locks the catalog, reads the current validated
+contents, runs an Effect updater, and validates the result before replacement.
+The updater must not perform external side effects. A new configuration directory
+uses mode `0700` on POSIX. The next catalog is written to a unique file with mode
+`0600`, synced, closed, and renamed within that directory. Validation failures,
+oversized results, and updater failures leave the old catalog unchanged. Effect
+resource management releases locks on failure and interruption. The file commit
+finishes before observing cancellation, so a released lock cannot race an
+unfinished write. This is atomic replacement, not a claim of power-loss durability.
+
+[`proper-lockfile`](https://github.com/moxystudio/node-proper-lockfile) serializes
+writers across processes. Every writer uses the resolved directory and the same
+10-second stale threshold, with a 3-second heartbeat. Acquisition retries for
+about one second, then returns `CatalogBusy`. An abandoned stale lock can recover
+on a later attempt. Symbolic links and nonregular catalog destinations cannot be
+replaced by the writer. A completed rename remains a successful commit even if
+temporary-file or lock cleanup fails; callers must not delete its credentials as
+though it rolled back. A hard process exit may leave temporary metadata files or
+unreferenced OS secrets. No automatic vault-wide cleanup is implemented.
+
+The internal credential store uses pinned
+[`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node). Linux explicitly
+requires Secret Service and does not use the library's default fallback to an
+in-memory kernel keyring. Windows uses the binding's native credential store.
+The service is `runnel`; each registration gets its own random identifier and a
+`keyring:runnel/<identifier>` catalog reference. Reusing the same URI does not
+reuse the secret identifier.
+
+`withStored` creates a credential and runs a callback that commits its reference
+to the catalog. A successful callback retains the credential. A failed callback
+removes it, and a failed native write attempts cleanup. This small commit sequence
+finishes before observing external Effect interruption. Read and delete operations
+validate references before touching the vault. Missing entries are distinct from
+a locked or unavailable store. Native errors are replaced by generic diagnostics
+that do not include the connection string. Tests inject a credential-entry factory
+to avoid the user's vault; ordinary `verify` needs no credential service. Packaging
+checks also load the native binding without constructing an entry.
+
+These helpers are internal to the CLI and do not add setup or database commands.
+Native Linux round-trip checks use a temporary catalog and synthetic secrets.
+Native Windows checks are still planned.
