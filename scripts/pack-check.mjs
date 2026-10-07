@@ -81,14 +81,31 @@ try {
     { cwd: consumer, encoding: "utf8" }
   );
   assert.equal(imports.status, 0, imports.stderr);
-  const cli = spawnSync(
-    process.execPath,
-    [join(consumer, "node_modules/@abijith-suresh/runnel/dist/cli.js")],
-    { cwd: consumer, encoding: "utf8" }
+  const executable = join(consumer, "node_modules/@abijith-suresh/runnel/dist/cli.js");
+  const cli = spawnSync(process.execPath, [executable, "--help"], {
+    cwd: consumer,
+    encoding: "utf8",
+  });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(cli.stderr, "");
+  assert.match(cli.stdout, /Database commands are planned and are not implemented/);
+  const version = spawnSync(process.execPath, [executable, "--version"], {
+    cwd: consumer,
+    encoding: "utf8",
+  });
+  assert.equal(version.status, 0, version.stderr);
+  assert.equal(version.stderr, "");
+  assert.equal(
+    version.stdout,
+    `${manifests.find((pkg) => pkg.name === "@abijith-suresh/runnel").version}\n`
   );
-  assert.equal(cli.status, 1);
-  assert.equal(cli.stdout, "");
-  assert.match(cli.stderr, /Planned commands are not implemented/);
+  const unsupported = spawnSync(process.execPath, [executable, "setup"], {
+    cwd: consumer,
+    encoding: "utf8",
+  });
+  assert.equal(unsupported.status, 1);
+  assert.equal(unsupported.stdout, "");
+  assert.match(unsupported.stderr, /Unsupported arguments/);
   process.stdout.write(
     "All three npm pack dry runs, isolated tarball installs, imports, and CLI entry point passed\n"
   );
