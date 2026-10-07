@@ -3,7 +3,7 @@
 ## Scope and sources of truth
 
 Runnel currently implements in-memory database target selection in core and CLI
-help/version flags. The MongoDB adapter remains a packaging stub. Additional
+help/version flags and offline catalog discovery. The MongoDB adapter remains a packaging stub. Additional
 product work needs an explicit task. Do not turn planned examples into implemented commands as part of
 an unrelated change.
 
@@ -44,8 +44,13 @@ promise that a feature already exists. Preserve that distinction in prose.
 - Update the document that owns the changed truth. Keep prose plain and mark
   proposals, examples, and unresolved decisions as planned.
 
-The current scope does not include credentials, catalog persistence, database
-access, daemon/worker behavior, provider behavior, scripts, MCP, or another provider.
-Core selects environment and database alias names from supplied in-memory names.
-The adapter remains a packaging stub. The CLI supports only help/version and has
-no database commands or integration with core target selection yet.
+The maintainer has authorized the local MongoDB CLI milestone in
+`docs/DEVELOPMENT.md`. Implement it through concise feature PRs, fresh independent
+review rounds, and passing required checks before merging. Prepare and merge a
+guarded patch version PR after every three merged feature PRs. Publication, MCP,
+and other providers are outside that milestone.
+
+Current behavior includes core names-only target selection and CLI help/version
+and offline catalog discovery. Catalog writes, credentials, database operations,
+daemon/worker behavior, and scripts are not implemented yet. Keep this status and
+the owning documents accurate as each slice lands.

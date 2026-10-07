@@ -19,8 +19,8 @@ Core declares Effect v4. MongoDB declares core, Effect v4, and the official
 MongoDB driver. CLI declares core, MongoDB, and Effect v4. These dependencies
 reserve the agreed boundaries; no provider adapter or provider contracts exist
 yet. Core exports database target selection. The MongoDB and CLI library entry
-points still export empty modules. The executable supports help/version flags
-only. No database commands are implemented.
+points still export empty modules. The executable supports help/version and
+offline catalog discovery. No database operations are implemented.
 
 All workspaces are publishable with public access and fixed, aligned versions.
 The CLI uses ordinary package dependencies rather than bundling. The future
@@ -74,7 +74,7 @@ or the request. No CLI command uses it yet.
 The executable uses Node's built-in `parseArgs` for `--help`/`-h` and
 `--version`/`-v`. No arguments show help. Help takes precedence when both flags
 are supplied. Success writes to stdout and exits with status 0. Unknown flags,
-positional commands, and malformed options produce a concise stderr diagnostic
+unsupported positional commands, and malformed options produce a concise stderr diagnostic
 and exit with status 1, without echoing the supplied arguments.
 
 Version output reads the owning package's `package.json` relative to the compiled
@@ -82,6 +82,39 @@ entry point, independently of the working directory. It reflects the installed
 artifact's version after Changesets updates metadata. Missing or invalid version
 metadata produces a stderr diagnostic and status 1 when the executable can load.
 
-These small process and package-metadata boundaries use Node APIs directly. No
-database dependencies, catalog, or daemon are initialized. Output envelopes for
-future database commands remain a design task; help/version use plain text.
+These small process and package-metadata boundaries use Node APIs directly.
+Help/version do not initialize database dependencies, a catalog, or a daemon.
+Help/version use plain text.
+
+## Catalog and offline discovery
+
+The CLI owns `catalog.json`, a user-wide configuration file independent of cwd.
+Linux uses `$XDG_CONFIG_HOME/runnel` or `~/.config/runnel`; Windows uses
+`%APPDATA%/runnel`, falling back to `~/AppData/Roaming/runnel`. An absolute
+`RUNNEL_HOME` overrides the directory. Relative configuration roots fail.
+
+The reader implements schema version 1 from the design example. It requires
+`settings.idleTimeoutMs`, `settings.scriptTimeoutMs`, and `environments`.
+Each environment has `connections` and `databases`. A connection has provider
+`mongodb` and a `keyring:runnel/<identifier>` secret reference. A database alias
+has a connection name within that environment and a physical database name.
+No credential is stored in this file. There is no writer or migration yet.
+
+Effect v4 Schema validates every field and rejects extra properties. Environment,
+connection, and alias names use 1 to 64 ASCII letters, digits, underscores, or
+hyphens. Prototype-related names are reserved. References must resolve within
+their environment. Unknown schema versions, providers, malformed JSON, or files
+over 1 MiB fail without reporting input values. Missing files mean an empty catalog;
+I/O failures remain distinct. Nonregular files are rejected without waiting for
+a FIFO writer. Physical database names exclude whitespace and MongoDB's forbidden
+characters on either platform and use at most 63 UTF-8 bytes, following
+[MongoDB's naming limits](https://www.mongodb.com/docs/manual/reference/limits/#naming-restrictions).
+Settings are nonnegative integer milliseconds bounded
+by Node's timer range; their operational behavior remains planned.
+
+`envs`, `connections -e <name>`, and `databases -e <name>` return sorted configured
+names or mappings in JSON envelopes. Success is `{ "ok": true, "data": ... }`;
+failure is `{ "ok": false, "error": { "code": ..., "message": ... } }` and exits
+with status 1. Connection results omit credential references. These commands
+need no credential service, provider, daemon, or database connection. Core's
+names-only target resolver remains separate from the persisted CLI schema.

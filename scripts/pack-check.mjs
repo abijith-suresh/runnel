@@ -89,6 +89,14 @@ try {
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stderr, "");
   assert.match(cli.stdout, /Database commands are planned and are not implemented/);
+  const discovery = spawnSync(process.execPath, [executable, "envs"], {
+    cwd: consumer,
+    env: { ...process.env, RUNNEL_HOME: join(temporary, "empty-catalog") },
+    encoding: "utf8",
+  });
+  assert.equal(discovery.status, 0, discovery.stderr);
+  assert.equal(discovery.stderr, "");
+  assert.deepEqual(JSON.parse(discovery.stdout), { ok: true, data: { environments: [] } });
   const version = spawnSync(process.execPath, [executable, "--version"], {
     cwd: consumer,
     encoding: "utf8",

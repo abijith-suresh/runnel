@@ -3,7 +3,7 @@
 This document records the agreed product design. Core now implements in-memory
 environment and database alias selection, described in
 [the current architecture](ARCHITECTURE.md#database-target-selection). The CLI also
-implements help/version flags. Database commands and all other product behavior
+implements help/version flags and offline catalog discovery. Database operations and other product behavior
 below remain **planned**. The document preserves
 the decisions from the initial discussion so later tasks can build from them
 without reconstructing it.
@@ -116,7 +116,8 @@ remain implementation defaults or decisions. No finalized values are claimed her
 
 ## Planned command examples
 
-These commands do not run in the development baseline:
+`envs`, `connections`, and `databases` now run offline. The other commands below
+remain planned:
 
 ```sh
 runnel setup
@@ -135,10 +136,12 @@ runnel daemon reset
 runnel daemon stop
 ```
 
-## Draft catalog
+## Catalog schema
 
-This is a planning example, not a committed schema or storage contract. Names
-and the secret reference are illustrative; there is no actual connection string.
+The CLI reader now validates this version 1 shape. See
+[the implemented constraints](ARCHITECTURE.md#catalog-and-offline-discovery).
+Writing, migration, and operational settings remain future work. Names and the
+secret reference below are illustrative; there is no actual connection string.
 
 ```json
 {
