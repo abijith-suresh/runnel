@@ -4,7 +4,7 @@ import { open, realpath } from "node:fs/promises";
 import { extname, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as Schema from "effect/Schema";
-import { BSON, type Db } from "mongodb";
+import { BSON, type Db, type Document } from "mongodb";
 import { encodeDocument, queryResultBytes } from "./mongodb-query.js";
 import { inputLimitBytes, QueryError } from "./query-input.js";
 import type { WorkerOperation, WorkerResult } from "./worker-protocol.js";
@@ -77,42 +77,123 @@ async function source(path: string): Promise<{ path: string; hash: string }> {
 }
 function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
   const seen = new Set<object>();
-  const check = (item: unknown): void => {
-    if (item === null || ["string", "boolean", "number"].includes(typeof item)) return;
+  const bsonPrototypes = new Set(
+    [
+      BSON.Binary,
+      BSON.BSONRegExp,
+      BSON.BSONSymbol,
+      BSON.Code,
+      BSON.DBRef,
+      BSON.Decimal128,
+      BSON.Double,
+      BSON.Int32,
+      BSON.Long,
+      BSON.MaxKey,
+      BSON.MinKey,
+      BSON.ObjectId,
+      BSON.Timestamp,
+      BSON.UUID,
+    ].map((type) => type.prototype)
+  );
+  const snapshot = (item: unknown): unknown => {
+    if (item === null || ["string", "boolean", "number"].includes(typeof item)) return item;
     if (typeof item !== "object" || item === null) throw new Error("Unsupported result");
     if (seen.has(item)) throw new Error("Cyclic result");
     seen.add(item);
     try {
-      if (item instanceof BSON.Code) {
-        if (item.scope !== null && item.scope !== undefined) check(item.scope);
-      } else if (item instanceof BSON.DBRef) {
-        check(item.oid);
-        check(item.fields);
-      } else if (
-        item instanceof BSON.BSONValue ||
-        item instanceof Date ||
-        item instanceof RegExp ||
-        Buffer.isBuffer(item)
-      )
-        return;
-      else if (Array.isArray(item)) item.forEach(check);
-      else if ([Object.prototype, null].includes(Object.getPrototypeOf(item)))
-        Object.values(item).forEach(check);
-      else throw new Error("Native handles and class instances are not results");
+      const descriptors = Object.getOwnPropertyDescriptors(item);
+      if (Reflect.ownKeys(descriptors).some((key) => !("value" in descriptors[key as string]!)))
+        throw new Error("Accessor result");
+      const data = (key: string): unknown => descriptors[key]?.value;
+      const prototype = Object.getPrototypeOf(item);
+      if (item instanceof BSON.BSONValue && bsonPrototypes.has(prototype)) {
+        if (Object.values(descriptors).some((descriptor) => typeof descriptor.value === "function"))
+          throw new Error("Modified BSON result");
+        // Copy numeric payloads directly; EJSON deserialization coerces invalid Int64/Int32 values.
+        if (item instanceof BSON.Long) {
+          const low = data("low"),
+            high = data("high"),
+            unsigned = data("unsigned");
+          if (
+            typeof low !== "number" ||
+            typeof high !== "number" ||
+            typeof unsigned !== "boolean" ||
+            !Number.isInteger(low) ||
+            !Number.isInteger(high) ||
+            low < -2147483648 ||
+            low > 2147483647 ||
+            high < -2147483648 ||
+            high > 2147483647
+          )
+            throw new Error("Invalid BSON integer");
+          if (item instanceof BSON.Timestamp)
+            return new BSON.Timestamp({ t: high >>> 0, i: low >>> 0 });
+          const value = BSON.Long.fromBits(low, high, unsigned);
+          if (value.toBigInt() > 9223372036854775807n) throw new Error("Int64 overflow");
+          return value;
+        }
+        if (item instanceof BSON.Int32) {
+          const value = data("value");
+          if (
+            typeof value !== "number" ||
+            !Number.isInteger(value) ||
+            value < -2147483648 ||
+            value > 2147483647
+          )
+            throw new Error("Int32 overflow");
+          return new BSON.Int32(value);
+        }
+        if (item instanceof BSON.Double) {
+          const value = data("value");
+          if (typeof value !== "number") throw new Error("Invalid BSON double");
+          return new BSON.Double(value);
+        }
+        if (item instanceof BSON.Code)
+          return new BSON.Code(
+            data("code") as string,
+            data("scope") == null ? undefined : (snapshot(data("scope")) as Document)
+          );
+        if (item instanceof BSON.DBRef)
+          return new BSON.DBRef(
+            data("collection") as string,
+            snapshot(data("oid")) as BSON.ObjectId,
+            data("db") as string | undefined,
+            snapshot(data("fields")) as Document
+          );
+        return BSON.EJSON.deserialize(BSON.EJSON.serialize(item, { relaxed: false }), {
+          relaxed: false,
+        });
+      }
+      if (prototype === Date.prototype) return new Date((item as Date).getTime());
+      if (prototype === RegExp.prototype)
+        return new RegExp((item as RegExp).source, (item as RegExp).flags);
+      if (Buffer.isBuffer(item)) return Buffer.from(item);
+      if (Array.isArray(item))
+        return Array.from({ length: data("length") as number }, (_, index) =>
+          snapshot(data(String(index)))
+        );
+      if ([Object.prototype, null].includes(prototype))
+        return Object.fromEntries(
+          Object.entries(descriptors)
+            .filter(([, descriptor]) => descriptor.enumerable)
+            .map(([key, descriptor]) => [key, snapshot(descriptor.value)])
+        );
+      throw new Error("Native handles and class instances are not results");
     } finally {
       seen.delete(item);
     }
   };
+
   try {
     const returned = value === undefined ? null : value;
-    check(returned);
-    const encoded = encodeDocument({ value: returned }, format)["value"];
+    const stable = snapshot(returned);
+    const encoded = encodeDocument({ value: stable }, format)["value"];
     return Schema.decodeUnknownSync(Schema.Json)(encoded);
   } catch (error) {
     if (error instanceof QueryError) throw error;
     throw new QueryError(
       "ResultEncodingFailed",
-      "Return JSON/BSON data rather than native handles, functions, or cyclic values."
+      "Return JSON/BSON data without native handles, accessors, functions, cycles, or unsupported classes."
     );
   }
 }

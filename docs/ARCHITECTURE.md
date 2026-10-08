@@ -416,10 +416,15 @@ clears both modules and connection pools.
 
 Results accept JSON/BSON values, use the query encoder's canonical EJSON or safe
 relaxed output, and carry a 512 KiB limit. An undefined return becomes null. Live
-handles, functions, cyclic values, and unsupported class instances fail with
+handles, accessor properties, functions, cyclic values, and unsupported class
+instances fail with
 `ResultEncodingFailed`; oversized results fail with `ResultTooLarge`. Scripts
-choose their own bounded result. The runner does not silently truncate arbitrary
-values. Awaited failures become sanitized structured errors, with useful driver
+choose their own bounded result. Invalid Int32/Int64 payloads and unsigned Long values beyond the signed BSON
+range fail rather than being coerced. The runner snapshots plain data and native
+BSON values before encoding so
+validation and serialization use the same values. It does not silently truncate
+arbitrary values. Awaited failures use fixed application messages even if a
+script modifies a caught error, with useful driver
 permission and connection categories. Script bodies, arguments, filenames, and
 raw error messages are excluded from application errors and operation history.
 The recorder stores one `run` entry for the primary configured target, rather than

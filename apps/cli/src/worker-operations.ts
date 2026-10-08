@@ -25,10 +25,41 @@ const targetMessages = {
   DatabaseNotFound: "The named database alias is not configured in this environment.",
 };
 
+const operationMessages = {
+  ...targetMessages,
+  CatalogInvalid: "The catalog mapping or schema is invalid. Check names and secret references.",
+  CatalogUnavailable: "Cannot read the Runnel catalog. Check its path, permissions, and format.",
+  SecretNotFound: "The configured credential is missing. Run setup again.",
+  SecretUnavailable: "OS credential storage is unavailable or locked. Unlock it and retry.",
+  SecretReferenceInvalid: "The credential reference is invalid.",
+  SecretInvalid: "The connection secret is empty or exceeds the size limit.",
+  InputInvalid: "The operation input is invalid. Check JSON values, names, and option shapes.",
+  InputTooLarge: "The operation input exceeds its allowed size.",
+  CollectionNotFound: "The named collection does not exist.",
+  ResultPrecisionLoss: "Use --format ejson to preserve this BSON Int64 value.",
+  ResultEncodingFailed:
+    "Return JSON/BSON data without native handles, accessors, functions, cycles, or unsupported classes.",
+  ResultTooLarge: "The operation result exceeds its allowed size. Return a bounded result.",
+  ScriptUnavailable:
+    "Cannot read the JavaScript entry script. Use an absolute regular .mjs or .js file up to 1 MiB.",
+  ScriptInvalid:
+    "Cannot load the JavaScript module and its imports. Default-export a function and reset after fixing it.",
+  ScriptChanged: "The loaded entry script changed. Reset the worker before running it again.",
+  ScriptTimedOut: "The script exceeded its deadline. It was not retried.",
+  ScriptStopped: "The script runner was stopped. The script was not retried.",
+  ScriptScopeEnded: "The script operation has already ended.",
+} as const;
+
 /** Never include driver messages, URIs, documents or stacks in application errors. */
 export function databaseFailure(error: unknown): WorkerResult {
   try {
-    if (error instanceof QueryError) return failure(error.code, error.message);
+    if (error instanceof QueryError) {
+      // Scripts can catch and mutate application errors; never copy their messages.
+      const code = error.code;
+      if (typeof code === "string" && Object.hasOwn(operationMessages, code))
+        return failure(code, operationMessages[code as keyof typeof operationMessages]);
+      return failure("DatabaseOperationFailed", "The operation could not be completed.");
+    }
     const rawCode =
       typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
     // promoteValues:false preserves query BSON values, including numeric server error fields.

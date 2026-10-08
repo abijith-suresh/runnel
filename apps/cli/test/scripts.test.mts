@@ -415,7 +415,7 @@ test("an uncooperative real script and its queue are terminated once; startup im
   }
 });
 
-test("finite CPU work and slow result encoding cannot succeed after the deadline before timers run", async () => {
+test("finite CPU work and slow result preparation cannot succeed after the deadline before timers run", async () => {
   const f = await fixture(
     "export default async()=>{const end=performance.now()+150;while(performance.now()<end){}return true;};"
   );
@@ -431,7 +431,7 @@ test("finite CPU work and slow result encoding cannot succeed after the deadline
     const path = join(f.directory, "slow-result.mjs");
     await writeFile(
       path,
-      "export default async()=>({get value(){const end=performance.now()+150;while(performance.now()<end){}return true;}});"
+      "export default async()=>new Proxy({value:true},{ownKeys(target){const end=performance.now()+150;while(performance.now()<end){}return Reflect.ownKeys(target);}});"
     );
     assert.equal(
       code(await f.operations.execute({ ...f.request, path, timeoutMs: 100 })),
@@ -480,6 +480,148 @@ test("throwing error accessors become sanitized results and keep queued scripts 
     assert(!JSON.stringify(results).includes("private"));
   } finally {
     await worker.stop();
+    await f.cleanup();
+  }
+});
+
+test("script-modified application errors cannot expose arguments or documents through messages or codes", async () => {
+  const f = await fixture(
+    `export default async({connect,args})=>{try{await connect({env:'unknown'});}catch(error){error.message='private-input '+args.private;if(args.modifyCode)error.code='private-code '+args.private;throw error;}};`
+  );
+  const worker = createWorkerSupervisor(f.directory, {
+    entrypoint: new URL("./fixtures/script-worker.mjs", import.meta.url),
+  });
+  try {
+    for (const modifyCode of [false, true])
+      for (const execute of [
+        (request: ScriptOperation) => f.operations.execute(request),
+        (request: ScriptOperation) => worker.execute(request),
+      ]) {
+        const result = await execute({
+          ...f.request,
+          args: JSON.stringify({ private: "secret-value", modifyCode }),
+        });
+        assert.equal(code(result), modifyCode ? "ScriptFailed" : "EnvironmentNotFound");
+        assert(!JSON.stringify(result).includes("private"));
+        assert(!JSON.stringify(result).includes("secret-value"));
+      }
+  } finally {
+    await worker.stop();
+    await f.cleanup();
+  }
+});
+test("result accessors cannot change validation or BSON precision; data proxies are snapshotted before encoding", async () => {
+  const f = await fixture("export default async()=>true;");
+  const worker = createWorkerSupervisor(f.directory, {
+    entrypoint: new URL("./fixtures/script-worker.mjs", import.meta.url),
+  });
+  try {
+    for (const [name, body] of [
+      [
+        "long",
+        "export default async({bson})=>{let reads=0;return {get item(){return ++reads<3?null:bson.Long.fromString('9007199254740993');}}};",
+      ],
+      [
+        "class",
+        "export default async()=>{let reads=0;return {get item(){return ++reads<2?null:new class {constructor(){this.private='forbidden';}}}}};",
+      ],
+      [
+        "array",
+        "export default async({bson})=>{const a=[];Object.defineProperty(a,'0',{get(){return bson.Long.fromString('9007199254740993');},enumerable:true});return a;};",
+      ],
+      [
+        "scope",
+        "export default async({bson})=>new bson.Code('code',{get item(){return bson.Long.fromString('9007199254740993');}});",
+      ],
+    ]) {
+      const path = join(f.directory, name! + ".mjs");
+      await writeFile(path, body!);
+      for (const execute of [
+        (request: ScriptOperation) => f.operations.execute(request),
+        (request: ScriptOperation) => worker.execute(request),
+      ])
+        assert.equal(
+          code(await execute({ ...f.request, path, format: "json" })),
+          "ResultEncodingFailed"
+        );
+    }
+    const proxy = join(f.directory, "proxy.mjs");
+    await writeFile(
+      proxy,
+      "export default async({bson})=>new Proxy({item:null},{get(){return bson.Long.fromString('9007199254740993');}});"
+    );
+    for (const execute of [
+      (request: ScriptOperation) => f.operations.execute(request),
+      (request: ScriptOperation) => worker.execute(request),
+    ])
+      assert.deepEqual(value(await execute({ ...f.request, path: proxy, format: "json" })), {
+        item: null,
+      });
+    const bson = join(f.directory, "bson.mjs");
+    await writeFile(
+      bson,
+      "export default async({bson})=>({code:new bson.Code('code',{n:bson.Long.fromString('9007199254740993')}),ref:new bson.DBRef('users',new bson.ObjectId('000000000000000000000001'),'db',{n:bson.Long.fromString('9007199254740993')}),timestamp:new bson.Timestamp({t:1,i:2})});"
+    );
+    const result = Schema.decodeUnknownSync(Schema.JsonObject)(
+      value(await worker.execute({ ...f.request, path: bson }))
+    );
+    assert.deepEqual(result["code"], {
+      $code: "code",
+      $scope: { n: { $numberLong: "9007199254740993" } },
+    });
+    assert.deepEqual(result["ref"], {
+      $ref: "users",
+      $id: { $oid: "000000000000000000000001" },
+      $db: "db",
+      n: { $numberLong: "9007199254740993" },
+    });
+    assert.deepEqual(result["timestamp"], { $timestamp: { t: 1, i: 2 } });
+    assert.equal(
+      code(await worker.execute({ ...f.request, path: bson, format: "json" })),
+      "ResultPrecisionLoss"
+    );
+  } finally {
+    await worker.stop();
+    await f.cleanup();
+  }
+});
+
+test("BSON snapshots preserve signed Int64 edges and reject payloads that EJSON round trips would coerce", async () => {
+  const f = await fixture(
+    "export default async({bson})=>({min:bson.Long.MIN_VALUE,max:bson.Long.MAX_VALUE});"
+  );
+  try {
+    assert.deepEqual(value(await f.operations.execute(f.request)), {
+      min: { $numberLong: "-9223372036854775808" },
+      max: { $numberLong: "9223372036854775807" },
+    });
+    assert.equal(
+      code(await f.operations.execute({ ...f.request, format: "json" })),
+      "ResultPrecisionLoss"
+    );
+    for (const [name, body] of [
+      [
+        "unsigned",
+        "export default async({bson})=>bson.Long.fromString('18446744073709551615',true);",
+      ],
+      [
+        "int32",
+        "export default async({bson})=>{const value=new bson.Int32(1);value.value=2147483648;return value;};",
+      ],
+      [
+        "bits",
+        "export default async({bson})=>{const value=new bson.Long(1,0,false);value.high=1.5;return value;};",
+      ],
+    ]) {
+      const path = join(f.directory, name! + ".mjs");
+      await writeFile(path, body!);
+      for (const format of ["json", "ejson"] as const)
+        assert.equal(
+          code(await f.operations.execute({ ...f.request, path, format })),
+          "ResultEncodingFailed"
+        );
+    }
+  } finally {
     await f.cleanup();
   }
 });
