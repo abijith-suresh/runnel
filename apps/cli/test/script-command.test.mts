@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { emptyCatalog } from "../dist/catalog.js";
 import { daemonCommand, executeWithDaemon } from "../dist/daemon-client.js";
@@ -18,6 +18,7 @@ import { scriptMaximumTimeoutMs } from "../dist/worker-protocol.js";
 import { createWorkerSupervisor } from "../dist/worker-supervisor.js";
 
 const executable = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+const encodedEntryName = process.platform === "win32" ? "entry #%.mjs" : "entry #?.mjs";
 const workerEntrypoint = new URL("./fixtures/script-worker.mjs", import.meta.url);
 async function fixture(scriptTimeoutMs = 300000) {
   const directory = await mkdtemp(join(tmpdir(), "runnel-script-cli-"));
@@ -169,7 +170,7 @@ test("script CLI executes relative ES modules with inline/file/stdin args, defau
   const daemon = await startDaemon(f.directory, { workerEntrypoint });
   try {
     await writeFile(
-      join(f.directory, "entry #?.mjs"),
+      join(f.directory, encodedEntryName),
       "let calls=0;export default async({db,args,bson})=>{console.log('worker-output');return {calls:++calls,name:db.databaseName,args,oid:new bson.ObjectId('000000000000000000000001')};};"
     );
     await writeFile(join(f.directory, "args.json"), '{"$numberLong":"literal"}');
@@ -180,7 +181,7 @@ test("script CLI executes relative ES modules with inline/file/stdin args, defau
     ] as const) {
       const result = await launch(
         f.directory,
-        ["run", "entry #?.mjs", "-e", "local", "--format", "json", ...options],
+        ["run", encodedEntryName, "-e", "local", "--format", "json", ...options],
         input
       ).completed;
       assert.equal(result.status, 0, result.stderr + result.stdout);

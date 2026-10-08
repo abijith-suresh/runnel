@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { createMongoPool } from "@abijith-suresh/runnel-mongodb";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -19,7 +19,7 @@ import { createWorkerSupervisor } from "../dist/worker-supervisor.js";
 
 async function fixture(body: string) {
   const directory = await mkdtemp(join(tmpdir(), "runnel-script-"));
-  const path = join(directory, "entry #?.mjs");
+  const path = join(directory, process.platform === "win32" ? "entry #%.mjs" : "entry #?.mjs");
   await writeFile(path, body);
   const catalog = {
     ...emptyCatalog(),
