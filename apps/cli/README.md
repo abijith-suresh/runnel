@@ -4,8 +4,8 @@
 `runnel`. Bare npm `runnel` belongs to an existing package. The CLI depends on
 the matching public core and MongoDB packages, plus Effect v4.
 
-The CLI supports information flags, human setup, offline discovery, collection listing, query commands, and
-daemon lifecycle commands:
+The CLI supports information flags, human setup, offline discovery, collection
+listing, query commands, attached scripts, history, and daemon lifecycle commands:
 
 ```sh
 runnel --help     # also -h; no arguments show help too
@@ -19,6 +19,8 @@ runnel describe users -e local -d accounts
 runnel find users -e local -d accounts --filter-file filter.json
 runnel count users -e local -d accounts
 runnel aggregate users -e local -d accounts --pipeline-file pipeline.json
+runnel run compare.mjs -e local -d accounts --args-file args.json --timeout 5m
+runnel history
 runnel daemon status
 runnel daemon reset
 runnel daemon stop
@@ -47,7 +49,7 @@ commands never start a missing daemon. The daemon shuts down after five minutes
 of inactivity by default; active and queued work prevent shutdown. Stop the old
 daemon after installing another Runnel version before running database work.
 
-CLI scripts and exports remain planned. An internal worker runner is implemented. The library entry point still exports an empty
+Exports remain planned. The library entry point still exports an empty
 module; there is no public CLI composition API.
 
 For local development, build at the repository root and invoke the compiled CLI.
@@ -149,7 +151,58 @@ Aggregation pipelines run unchanged under the database user's permissions,
 including stages that write data. `--limit` bounds returned documents and does
 not bound pipeline side effects. Runnel adds no separate read/write approval gate.
 Errors are structured and exit nonzero without dumping query values or driver
-messages. CLI scripts and exports remain planned. An internal worker runner is implemented.
+messages. Exports remain planned.
+
+## JavaScript scripts
+
+`run` executes a local `.mjs` or `.js` ES module in the persistent worker. Entry
+paths resolve from the CLI's working directory. The module default-exports an
+async function receiving `{ db, args, connect, signal, bson }`. Native MongoDB
+handles and connection pools remain in that worker. Scripts need no separate
+driver installation to use `bson.ObjectId` or `connect({ env, db })`.
+
+```js
+export default async function ({ db, args, signal }) {
+  return await db.collection("users").findOne(args.filter, { signal });
+}
+```
+
+```sh
+runnel run lookup.mjs -e dint -d accounts --args '{"filter":{"active":true}}'
+runnel run lookup.mjs -e dint -d accounts --args-file args.json --timeout 5m
+cat args.json | runnel run lookup.mjs -e dint -d accounts --args-file -
+```
+
+An environment is required. A database alias is inferred only when the selected
+environment has one. Choose `--args` or `--args-file`; arguments default to `{}`
+and accept plain JSON up to 256 KiB from inline input, UTF-8 regular files, or stdin.
+EJSON-looking argument keys stay data. Use the `bson` helpers inside the script
+when constructing native values. Numeric argument literals must be finite and safe.
+
+Output defaults to canonical EJSON; `--format json` chooses relaxed output and
+rejects unsafe Int64 conversion. Return bounded data, not handles or cursors.
+Results have a 512 KiB cap; undefined becomes null. Worker console output is
+discarded so stdout contains one result envelope.
+
+The deadline defaults to `settings.scriptTimeoutMs`, initially five minutes.
+`--timeout` accepts whole durations with `ms`, `s`, `m`, or `h`, up to
+2,147,483,547 ms. `0` disables it. If the catalog setting exceeds this script
+limit, lower it or use an explicit supported override. The active deadline
+includes target lookup, imports, execution, and result processing; queue wait is
+separate. It is independent of the daemon's idle timer. Pass `signal` to driver
+operations that support it and await all work.
+
+Scripts stay attached. On Linux, Ctrl+C returns `OperationCancelled` and exit
+130; SIGTERM returns exit 143. Losing the CLI connection also cancels its script.
+Cancelling a queued request removes only that request. Cancelling active work
+stops the worker and discards queued requests, with no replay. Neither a timeout
+nor cancellation proves that database writes were rolled back. Native Windows
+signal behavior remains unvalidated.
+
+After editing an already-used entry, run `runnel daemon reset`; changed entries
+fail with `ScriptChanged` until reset. Imported dependency-only edits and fixed
+failed imports also need reset. Reset clears modules and pools. Scripts execute
+with the worker user's OS and database permissions.
 
 ## Local operation history
 

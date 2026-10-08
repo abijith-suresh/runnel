@@ -120,7 +120,10 @@ characters on either platform and use at most 63 UTF-8 bytes, following
 [MongoDB's naming limits](https://www.mongodb.com/docs/manual/reference/limits/#naming-restrictions).
 Settings are nonnegative integer milliseconds bounded by Node's timer range.
 The daemon reads `idleTimeoutMs` at startup; zero disables idle shutdown.
-`scriptTimeoutMs` remains reserved for the planned CLI script deadline default.
+The CLI reads `scriptTimeoutMs` for each `run` invocation unless `--timeout`
+overrides it. Script deadlines allow at most 2,147,483,547 ms, leaving room for
+the supervisor's cleanup grace; higher catalog values need an explicit override
+or a lower setting.
 
 `envs`, `connections -e <name>`, and `databases -e <name>` return sorted configured
 names or mappings in JSON envelopes. Success is `{ "ok": true, "data": ... }`;
@@ -189,7 +192,7 @@ queueing them. Startup has a 10-second deadline. Internal operations default to 
 15-second active deadline; queue waiting does not consume it, and zero disables
 it. Script requests carry an explicit active deadline; zero disables it. The
 supervisor adds 100 ms for cooperative cleanup before terminating a script worker.
-The planned CLI will apply the catalog's five-minute script default.
+CLI `run` applies the catalog's five-minute script default unless overridden.
 Reset, stop, a crash, and protocol failure discard active and queued requests
 without replay. A timed-out active request reports `OperationTimedOut`; its queued
 requests report `WorkerRestarted`. Later requests may start a fresh worker after
@@ -265,7 +268,7 @@ timer. Idle shutdown and stop close the worker before releasing daemon ownership
 Lifecycle commands return JSON envelopes and do not start an absent daemon.
 `list` requires an explicit environment and uses the core's alias selection rules.
 All command failures return structured errors and a nonzero exit. Operation
-scripts and exports remain planned.
+scripts are attached through `run`; exports remain planned.
 
 
 ## Human setup
@@ -388,12 +391,15 @@ not proof that a writing pipeline had no side effects. Native Windows filesystem
 permissions and history behavior have not been validated.
 
 
-## Internal JavaScript runner
+## JavaScript runner and CLI
 
 The worker accepts internal `run` requests with an absolute JavaScript entry path,
-plain JSON arguments, an output format, and an explicit deadline. The executable
-still has no `run` command. CLI file/stdin arguments, cancellation on disconnect,
-and `settings.scriptTimeoutMs` defaults are the next slice.
+plain JSON arguments, an output format, and an explicit deadline. CLI `run`
+resolves an entry against the caller's directory, reads bounded UTF-8 arguments
+from inline JSON, a regular file, or stdin, and chooses the catalog's deadline
+unless overridden. Positive whole durations need `ms`, `s`, `m`, or `h`; zero
+disables the deadline. Input validation precedes daemon startup. Worker console
+output is discarded; the CLI emits one JSON result envelope.
 
 A module default-exports a function, normally async, receiving
 `{ db, args, connect, signal, bson }`. `db` is an actual worker-local driver `Db`.
@@ -445,3 +451,14 @@ resources. A completed invocation disables later `connect` calls but cannot
 revoke a native handle retained by arbitrary JavaScript. Scripts run with the
 worker user's OS and database permissions. No driver proxy or script sandbox is
 introduced. Native Windows script execution remains unvalidated.
+
+Execution responses have no transport inactivity timer, allowing queued work and
+extended or disabled deadlines to remain attached. Connect and lifecycle requests
+remain bounded. CLI interruption closes its socket and returns `OperationCancelled`.
+The daemon observes script socket closure through a per-request AbortSignal. The
+supervisor removes a cancelled queued request without stopping active work. It
+stops the worker for active cancellation, fails the queue with `WorkerRestarted`,
+and never replays requests. Completed requests detach their cancellation listeners.
+History records a sanitized cancellation outcome for accepted requests. Cancellation
+before dispatch does not guarantee that a daemon auto-start already in progress
+was stopped; an idle daemon still follows its configured idle policy.

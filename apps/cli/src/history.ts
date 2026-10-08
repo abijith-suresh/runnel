@@ -46,6 +46,7 @@ const errorCodes = [
   "WorkerStopped",
   "WorkerRestarting",
   "OperationTimedOut",
+  "OperationCancelled",
   "QueueFull",
   "RequestInvalid",
   "ScriptUnavailable",
@@ -224,24 +225,26 @@ function targets(
 /** One entry per accepted application operation, even if the worker is reset or crashes. */
 export function createOperationHistory(
   directory: string,
-  worker: { execute(input: unknown): Promise<WorkerResult> }
+  worker: {
+    execute(input: unknown, timeoutMs?: number, signal?: AbortSignal): Promise<WorkerResult>;
+  }
 ) {
   let writes = Promise.resolve();
   const pending = new Set<Promise<{ result: WorkerResult; historyFailed: boolean }>>();
-  const run = async (input: unknown) => {
+  const run = async (input: unknown, signal?: AbortSignal) => {
     let request: WorkerOperation;
     try {
       request = decodeOperation(input);
       request = decodeOperation(JSON.parse(JSON.stringify(request)) as unknown);
     } catch {
-      return { result: await worker.execute(input), historyFailed: false };
+      return { result: await worker.execute(input, undefined, signal), historyFailed: false };
     }
     if (request.operation === "inspect")
-      return { result: await worker.execute(request), historyFailed: false };
+      return { result: await worker.execute(request, undefined, signal), historyFailed: false };
     const timestamp = new Date().toISOString();
     const started = performance.now();
     const snapshot = Effect.runPromise(readCatalog(directory).pipe(Effect.result));
-    const operation = worker.execute(request);
+    const operation = worker.execute(request, undefined, signal);
     const catalog = await snapshot;
     const result = await operation;
     const durationMs = Math.floor(performance.now() - started);
@@ -272,8 +275,8 @@ export function createOperationHistory(
     }
   };
   return {
-    execute(input: unknown) {
-      const task = run(input);
+    execute(input: unknown, signal?: AbortSignal) {
+      const task = run(input, signal);
       pending.add(task);
       void task.then(
         () => pending.delete(task),

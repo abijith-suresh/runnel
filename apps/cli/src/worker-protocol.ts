@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 
 export const ipcLimitBytes = 1024 * 1024;
 export const nameLimit = 1000;
+export const scriptMaximumTimeoutMs = 2147483547;
 const text = Schema.String.check(Schema.isMaxLength(1024));
 const target = { env: Schema.optionalKey(text), db: Schema.optionalKey(text) };
 const collection = Schema.String.check(Schema.isPattern(/^[^\0]{1,1024}$/));
@@ -19,7 +20,7 @@ const requestSchema = Schema.Union([
     format,
     timeoutMs: Schema.Number.check(
       Schema.isInt(),
-      Schema.isBetween({ minimum: 0, maximum: 2147483547 })
+      Schema.isBetween({ minimum: 0, maximum: scriptMaximumTimeoutMs })
     ),
   }),
   Schema.Struct({ operation: Schema.Literal("inspect"), uri: Schema.String }),

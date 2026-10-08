@@ -116,8 +116,26 @@ export async function startDaemon(directory: string, options: { workerEntrypoint
               await worker.reset();
               respond({ ok: true, data: { reset: true } });
             } else if (command.action === "execute") {
-              const { result, historyFailed } = await history.execute(command.request);
-              respond(historyFailed ? { ...result, warning: "HistoryUnavailable" } : result);
+              const controller = new AbortController();
+              const disconnected = () => controller.abort();
+              if (
+                typeof command.request === "object" &&
+                command.request !== null &&
+                "operation" in command.request &&
+                command.request.operation === "run"
+              )
+                socket.once("close", disconnected);
+              if (socket.destroyed) controller.abort();
+              try {
+                const { result, historyFailed } = await history.execute(
+                  command.request,
+                  controller.signal
+                );
+                socket.off("close", disconnected);
+                respond(historyFailed ? { ...result, warning: "HistoryUnavailable" } : result);
+              } finally {
+                socket.off("close", disconnected);
+              }
             }
           } finally {
             inFlight--;
