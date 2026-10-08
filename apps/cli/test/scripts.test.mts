@@ -841,3 +841,54 @@ test("byte snapshots reject payload overrides and copy actual native bytes witho
     await f.cleanup();
   }
 });
+
+test("array snapshots validate primitive lengths and index bounds before allocating or coercing", async () => {
+  const f = await fixture("export default async()=>true;");
+  const worker = createWorkerSupervisor(f.directory, {
+    entrypoint: new URL("./fixtures/script-worker.mjs", import.meta.url),
+  });
+  try {
+    for (const [index, length] of [
+      "new class {valueOf(){return 0;}}",
+      "'0'",
+      "-1",
+      "1.5",
+      "NaN",
+      "Infinity",
+      "4294967296",
+      "0",
+      "524289",
+    ].entries()) {
+      const path = join(f.directory, `array-length-${index}.mjs`);
+      await writeFile(
+        path,
+        `export default async({bson})=>new Proxy([bson.Long.fromString('9007199254740993')],{getOwnPropertyDescriptor(t,k){const d=Reflect.getOwnPropertyDescriptor(t,k);return k==='length'?{...d,value:${length}}:d;}});`
+      );
+      for (const format of ["json", "ejson"] as const)
+        for (const execute of [
+          (request: ScriptOperation) => f.operations.execute(request),
+          (request: ScriptOperation) => worker.execute(request),
+        ])
+          assert.equal(
+            code(await execute({ ...f.request, path, format })),
+            length === "524289" ? "ResultTooLarge" : "ResultEncodingFailed"
+          );
+    }
+    const valid = join(f.directory, "valid-array.mjs");
+    await writeFile(valid, "export default async()=>[1,false,'literal',null];");
+    for (const format of ["json", "ejson"] as const)
+      for (const execute of [
+        (request: ScriptOperation) => f.operations.execute(request),
+        (request: ScriptOperation) => worker.execute(request),
+      ])
+        assert.deepEqual(value(await execute({ ...f.request, path: valid, format })), [
+          format === "json" ? 1 : { $numberInt: "1" },
+          false,
+          "literal",
+          null,
+        ]);
+  } finally {
+    await worker.stop();
+    await f.cleanup();
+  }
+});

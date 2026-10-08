@@ -269,10 +269,22 @@ function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
         return new RegExp(pattern, flags);
       }
       if (Buffer.isBuffer(item)) return new BSON.Binary(copyBytes(item));
-      if (Array.isArray(item))
-        return Array.from({ length: data("length") as number }, (_, index) =>
-          snapshot(data(String(index)))
-        );
+      if (Array.isArray(item)) {
+        const length = data("length");
+        if (
+          typeof length !== "number" ||
+          !Number.isInteger(length) ||
+          length < 0 ||
+          length > 0xffffffff ||
+          Object.keys(descriptors).some(
+            (key) => /^(0|[1-9]\d*)$/.test(key) && Number(key) < 0xffffffff && Number(key) >= length
+          )
+        )
+          throw new Error("Invalid array length");
+        if (length > queryResultBytes)
+          throw new QueryError("ResultTooLarge", "The script array cannot fit the result budget.");
+        return Array.from({ length }, (_, index) => snapshot(data(String(index))));
+      }
       if ([Object.prototype, null].includes(prototype))
         return Object.fromEntries(
           Object.entries(descriptors)
