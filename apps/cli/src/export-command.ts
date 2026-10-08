@@ -39,7 +39,12 @@ export async function runExportCommand(
   try {
     if (values.env === undefined)
       throw new QueryError("EnvironmentRequired", "Specify an environment with -e or --env.");
-    if (!values.output || values.output === "-" || values.output.includes("\0"))
+    if (
+      !values.output ||
+      values.output === "-" ||
+      values.output.includes("\0") ||
+      /(?:[\\/]|(?:^|[\\/])\.{1,2})$/.test(values.output)
+    )
       throw new QueryError("InputInvalid", "Export requires --output with a new filename.");
     const request = await buildQueryRequest("export", collection, values);
     const supplied = resolve(values.output);

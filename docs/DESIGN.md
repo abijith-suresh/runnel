@@ -8,10 +8,9 @@ and credential storage helpers. Internal worker supervision, MongoDB pools,
 connection inspection, and collection listing are also implemented. CLI `list`
 now starts a daemon, and daemon lifecycle commands are available. Human `setup`
 registers new connections and named aliases. `describe`, `find`, `count`, and
-`aggregate` are implemented with bounded JSON/EJSON output. `export` saves bounded JSON/EJSON arrays. History is on by default.
-Attached CLI JavaScript invocation is implemented. Exports
-and the remaining product behavior below remain
-**planned**. The document preserves
+`aggregate` are implemented with bounded JSON/EJSON output. `export` saves bounded
+JSON/EJSON arrays. History is on by default. Attached CLI JavaScript invocation is
+implemented. Remaining product behavior below is **planned**. The document preserves
 the decisions from the initial discussion so later tasks can build from them
 without reconstructing it.
 

@@ -82,6 +82,10 @@ test("export preflight validates targets, output and query options before dispat
     [{ output: join(directory, "users.ejson") }, "EnvironmentRequired"],
     [{ env: "local" }, "InputInvalid"],
     [{ env: "local", output: "-" }, "InputInvalid"],
+    [{ env: "local", output: `${join(directory, "missing")}/` }, "InputInvalid"],
+    [{ env: "local", output: `${join(directory, "missing")}/.` }, "InputInvalid"],
+    [{ env: "local", output: `${join(directory, "missing")}/child/..` }, "InputInvalid"],
+    [{ env: "local", output: `${join(directory, "missing")}\\` }, "InputInvalid"],
     [{ env: "local", output: "\0" }, "InputInvalid"],
     [{ env: "local", output: join(directory, "users.ejson"), limit: "1001" }, "InputInvalid"],
     [{ env: "local", output: join(directory, "users.ejson"), filter: "[]" }, "InputInvalid"],
@@ -329,6 +333,10 @@ test("CLI missing environment and invalid output fail without daemon startup", a
   for (const [args, expected] of [
     [["export", "users", "--output", "users.ejson"], "EnvironmentRequired"],
     [["export", "users", "-e", "local"], "InputInvalid"],
+    [["export", "users", "-e", "local", "--output", "missing/"], "InputInvalid"],
+    [["export", "users", "-e", "local", "--output", "missing/."], "InputInvalid"],
+    [["export", "users", "-e", "local", "--output", "missing/child/.."], "InputInvalid"],
+    [["export", "users", "-e", "local", "--output", "missing\\"], "InputInvalid"],
     [["export", "users", "-e", "local", "--output", "missing/users.ejson"], "OutputUnavailable"],
   ] as const) {
     const result = await cli(directory, [...args]);

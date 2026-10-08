@@ -348,8 +348,9 @@ permission, authentication, invalid-query, missing-collection, and timeout error
 
 Driver cursor operations have a 10-second deadline and run within the supervisor's
 15-second active deadline. Queue wait time is separate. Internal script requests
-have their own explicit deadline; CLI script and export options remain future work. Operation history is on by default. Standard verification uses synthetic
-handles and inputs; separate WSL probes exercise these commands against Podman
+have their own explicit deadline. CLI script and export options are documented
+in their sections below. Operation history is on by default. Standard verification
+uses synthetic handles and inputs. Separate WSL probes exercise these commands against Podman
 MongoDB with an isolated catalog and keyring entry. Native Windows query operation
 has not been validated.
 
