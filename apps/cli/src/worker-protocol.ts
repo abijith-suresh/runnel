@@ -3,16 +3,68 @@ import * as Schema from "effect/Schema";
 export const ipcLimitBytes = 1024 * 1024;
 export const nameLimit = 1000;
 const text = Schema.String.check(Schema.isMaxLength(1024));
+const target = { env: Schema.optionalKey(text), db: Schema.optionalKey(text) };
+const collection = Schema.String.check(Schema.isPattern(/^[^\0]{1,1024}$/));
+const format = Schema.optionalKey(Schema.Literals(["json", "ejson"]));
+const limit = Schema.optionalKey(
+  Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 1000 }))
+);
+const input = Schema.optionalKey(Schema.String);
 const requestSchema = Schema.Union([
   Schema.Struct({ operation: Schema.Literal("inspect"), uri: Schema.String }),
   Schema.Struct({
     operation: Schema.Literal("list"),
-    env: Schema.optionalKey(text),
-    db: Schema.optionalKey(text),
+    ...target,
+  }),
+  Schema.Struct({ operation: Schema.Literal("describe"), ...target, collection, format }),
+  Schema.Struct({
+    operation: Schema.Literal("count"),
+    ...target,
+    collection,
+    format,
+    filter: input,
+  }),
+  Schema.Struct({
+    operation: Schema.Literal("find"),
+    ...target,
+    collection,
+    format,
+    filter: input,
+    projection: input,
+    sort: input,
+    limit,
+    skip: Schema.optionalKey(
+      Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 2147483647 }))
+    ),
+  }),
+  Schema.Struct({
+    operation: Schema.Literal("aggregate"),
+    ...target,
+    collection,
+    format,
+    pipeline: Schema.String,
+    limit,
   }),
 ]);
 export type WorkerOperation = typeof requestSchema.Type;
 const errorSchema = Schema.Struct({ code: text, message: text });
+const queryTarget = {
+  env: text,
+  db: text,
+  collection: text,
+  format: Schema.Literals(["json", "ejson"]),
+};
+const truncation = {
+  truncated: Schema.Boolean,
+  truncationReason: Schema.optionalKey(Schema.Literals(["documents", "bytes"])),
+  limits: Schema.Struct({
+    documents: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 1000 })),
+    bytes: Schema.Number.check(
+      Schema.isInt(),
+      Schema.isBetween({ minimum: 1, maximum: 512 * 1024 })
+    ),
+  }),
+};
 export const resultSchema = Schema.Union([
   Schema.Struct({
     ok: Schema.Literal(true),
@@ -23,6 +75,27 @@ export const resultSchema = Schema.Union([
         db: text,
         collections: Schema.Array(Schema.Struct({ name: text, type: text })),
         truncated: Schema.Boolean,
+      }),
+      Schema.Struct({
+        ...queryTarget,
+        count: Schema.Union([
+          Schema.Number.check(
+            Schema.isInt(),
+            Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })
+          ),
+          Schema.Struct({ $numberLong: Schema.String.check(Schema.isPattern(/^[0-9]{1,19}$/)) }),
+        ]),
+      }),
+      Schema.Struct({
+        ...queryTarget,
+        ...truncation,
+        documents: Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(1000)),
+      }),
+      Schema.Struct({
+        ...queryTarget,
+        ...truncation,
+        metadata: Schema.JsonObject,
+        indexes: Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(1000)),
       }),
     ]),
   }),

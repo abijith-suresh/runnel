@@ -16,14 +16,16 @@ apps/cli -> packages/mongodb -> packages/core
 ```
 
 Core declares Effect v4. MongoDB declares core, Effect v4, and the official
-MongoDB driver. CLI declares core, MongoDB, Effect v4, `proper-lockfile`, and
+MongoDB driver. CLI declares core, MongoDB, the driver for worker-local BSON
+encoding, Effect v4, `proper-lockfile`, and
 `@napi-rs/keyring`. The latter two own cross-process catalog locking and native
 credential access. Core exports database target selection; provider contracts
 remain future work. MongoDB exports its worker-local pool manager. The CLI library
 entry point still exports an empty module. The executable supports help/version
 and offline catalog discovery. Internal worker operations inspect connections and
-list collections. CLI `list` invokes them through a local daemon; other database
-commands remain planned.
+list collections. CLI database commands invoke the worker through a local daemon.
+It now also implements describe, find, count, and aggregate; history, scripts, and
+exports remain planned.
 
 All workspaces are publishable with public access and fixed, aligned versions.
 The CLI uses ordinary package dependencies rather than bundling. The future
@@ -204,7 +206,7 @@ acquisition and removes clients only after successful close. Pool creation, repl
 and shutdown serialize even if future scripts connect in parallel. Only acquisition
 serializes; operations on acquired native handles can run in parallel.
 
-Two internal operations currently exist. `inspect` lists databases accessible to
+The initial internal operations remain available. `inspect` lists databases accessible to
 a supplied setup URI with a temporary client, then closes it. `list` resolves a
 named target and lists collections using its retained client. Results include at
 most 1,000 names and an explicit `truncated` flag. Collection cursors close on
@@ -259,7 +261,7 @@ timer. Idle shutdown and stop close the worker before releasing daemon ownership
 Lifecycle commands return JSON envelopes and do not start an absent daemon.
 `list` requires an explicit environment and uses the core's alias selection rules.
 All command failures return structured errors and a nonzero exit. Operation
-history, other built-ins, scripts, and exports remain planned.
+history, scripts, and exports remain planned.
 
 
 ## Human setup
@@ -289,3 +291,57 @@ Credential rotation, editing registrations, and migration remain future work.
 A daemon started for inspection may remain until idle shutdown even if setup is
 cancelled. Native Linux terminal/keyring/MongoDB checks use isolated synthetic
 fixtures; native Windows terminal and credential behavior remain unvalidated.
+
+
+## MongoDB query commands
+
+The CLI now implements `describe`, `find`, `count`, and `aggregate` through the
+same persistent worker and target-selection path as `list`. Every command requires
+`-e`; `-d` is inferred only for a sole alias. Query objects and pipelines are
+validated in the CLI and again in the worker before credential lookup. Filters,
+projections, sort objects, and pipelines can come from inline JSON/EJSON, a UTF-8
+regular file, or stdin with filename `-`. Only one input may consume stdin per
+command. Each input is limited to 256 KiB, and the complete request must fit the
+existing 1 MiB IPC frame. Errors omit filenames, input values, and driver messages.
+
+Find uses an empty filter by default and supports projection, numeric 1/-1 sort
+directions, and a nonnegative `--skip` up to 2147483647. Find and aggregate return
+at most 100 documents by default; `--limit` accepts 1 through 1,000. A 512 KiB
+budget also bounds the document array. Results include `limits`, `truncated`,
+and a `truncationReason` of `documents` or `bytes` when needed. An oversized first
+document returns an empty array with byte truncation. The worker consumes at most
+one extra document to detect the document cap and closes cursors on every path.
+Find requests at most limit+1 documents from MongoDB. Aggregate preserves the
+supplied pipeline and bounds returned documents at the cursor; it does not append
+a stage. Pipelines such as `$merge` or `$out` run under database-user permissions.
+The result limit does not limit those pipeline effects.
+
+Describe returns collection metadata and at most 1,000 index descriptions under
+the same combined 512 KiB budget. Views return no indexes. Missing collections
+fail explicitly. Count uses `$match` followed by `$count`, closes its cursor, and
+returns an exact safe integer, or a canonical `$numberLong` wrapper for a larger
+count in EJSON mode. Invalid or inexact count values fail.
+
+The worker uses the driver's
+[Extended JSON encoding](https://www.mongodb.com/docs/drivers/node/current/data-formats/extended-json/).
+`--format ejson` is the default and uses canonical EJSON. Query collections disable
+BSON numeric promotion so Int32, Int64, and Double types remain available to the
+encoder. Envelopes and their limits/count metadata use ordinary JSON numbers when
+safe. `--format json` uses relaxed Extended JSON; BSON identifiers, dates, binary,
+and decimals still use their standard wrappers. Numeric width can be lost, but
+unsafe Int64 conversion fails with `ResultPrecisionLoss` instead of rounding.
+Input numeric literals must be finite and safe when integral. Recognized EJSON
+wrappers are checked for exact keys, valid types, bounds, and representability
+before driver conversion. Date inputs must fit JavaScript's Date range. Ordinary
+query objects, including `$regex` with sibling predicates and DBRef records with
+extra fields, keep their keys; legacy regex wrapper conversion is disabled.
+Numeric wrappers supply larger integers or explicit nonfinite doubles. Driver error codes can also
+arrive as BSON numeric wrappers; classification normalizes them before mapping
+permission, authentication, invalid-query, missing-collection, and timeout errors.
+
+Driver cursor operations have a 10-second deadline and run within the supervisor's
+15-second active deadline. Queue wait time is separate. Export and script deadlines
+remain future work. History is still planned. Standard verification uses synthetic
+handles and inputs; separate WSL probes exercise these commands against Podman
+MongoDB with an isolated catalog and keyring entry. Native Windows query operation
+has not been validated.

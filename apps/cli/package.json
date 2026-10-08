@@ -1,7 +1,7 @@
 {
   "name": "@abijith-suresh/runnel",
   "version": "0.0.3",
-  "description": "CLI for Runnel. Help and version are implemented; database commands are planned.",
+  "description": "Named MongoDB access for agents, with human setup and a persistent local worker.",
   "type": "module",
   "license": "MIT",
   "author": "abijith-suresh",
@@ -44,6 +44,7 @@
     "@abijith-suresh/runnel-mongodb": "0.0.3",
     "@napi-rs/keyring": "2.1.0",
     "effect": "4.0.1",
+    "mongodb": "7.7.0",
     "proper-lockfile": "4.1.2"
   },
   "bin": {

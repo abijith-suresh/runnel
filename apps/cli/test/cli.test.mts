@@ -24,7 +24,8 @@ test("help and no arguments print available options on stdout", () => {
     assert.match(result.stdout, /runnel list -e/);
     assert.match(result.stdout, /runnel daemon status/);
     assert.match(result.stdout, /runnel setup/);
-    assert.match(result.stdout, /Other database commands, scripts, and history are planned/);
+    assert.match(result.stdout, /runnel find <collection>/);
+    assert.match(result.stdout, /Scripts, exports, and history are planned/);
   }
 });
 
@@ -51,7 +52,7 @@ test("help takes precedence when both information flags are supplied", () => {
 
 test("unsupported commands, options, and malformed flags fail without stdout", () => {
   for (const args of [
-    ["find", "users"],
+    ["find"],
     ["--env", "dint"],
     ["setup", "-e", "local"],
     ["setup", "--uri", "synthetic-secret"],
@@ -63,6 +64,8 @@ test("unsupported commands, options, and malformed flags fail without stdout", (
     ["daemon", "status", "-e", "local"],
     ["envs", "-d", "accounts"],
     ["list", "users", "-e", "local"],
+    ["count", "users", "--limit", "10"],
+    ["envs", "--format", "ejson"],
   ]) {
     const result = run(args);
     assert.equal(result.status, 1);
