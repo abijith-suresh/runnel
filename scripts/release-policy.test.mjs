@@ -175,7 +175,8 @@ test("the guarded Changesets command produces a valid aligned version PR", (t) =
     cwd: f.root,
     env: gitEnvironment(),
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: 60000,
+    // Isolated dependency extraction can exceed a minute on Windows runners.
+    timeout: 180000,
   });
   execFileSync(process.execPath, ["scripts/version-packages.mjs"], {
     cwd: f.root,

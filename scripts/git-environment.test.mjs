@@ -47,10 +47,11 @@ test("policy tests under a worktree hook leave the caller's repository untouched
         GIT_INDEX_FILE: join(directory, "index"),
       },
       encoding: "utf8",
-      timeout: 60000,
+      // Allow the nested install, guarded versioning, and Git fixtures to finish.
+      timeout: 300000,
     }
   );
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(result.status, 0, `${result.error ?? ""}\n${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, /# tests [1-9]\d*/);
   assert.match(result.stdout, /the guarded Changesets command produces a valid aligned version PR/);
   assert.deepEqual(snapshot(), before);
