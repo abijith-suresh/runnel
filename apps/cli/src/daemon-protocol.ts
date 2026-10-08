@@ -20,7 +20,16 @@ const commandSchema = Schema.Union([
 ]);
 export type DaemonCommand = typeof commandSchema.Type;
 const responseSchema = Schema.Union([
-  resultSchema,
+  Schema.Union([
+    Schema.Struct({
+      ...resultSchema.members[0].fields,
+      warning: Schema.optionalKey(Schema.Literal("HistoryUnavailable")),
+    }),
+    Schema.Struct({
+      ...resultSchema.members[1].fields,
+      warning: Schema.optionalKey(Schema.Literal("HistoryUnavailable")),
+    }),
+  ]),
   Schema.Struct({
     ok: Schema.Literal(true),
     data: Schema.Union([

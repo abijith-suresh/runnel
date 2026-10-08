@@ -47,7 +47,7 @@ commands never start a missing daemon. The daemon shuts down after five minutes
 of inactivity by default; active and queued work prevent shutdown. Stop the old
 daemon after installing another Runnel version before running database work.
 
-History, scripts, and exports remain planned. The library entry point still exports an empty
+Scripts and exports remain planned. The library entry point still exports an empty
 module; there is no public CLI composition API.
 
 For local development, build at the repository root and invoke the compiled CLI.
@@ -149,4 +149,26 @@ Aggregation pipelines run unchanged under the database user's permissions,
 including stages that write data. `--limit` bounds returned documents and does
 not bound pipeline side effects. Runnel adds no separate read/write approval gate.
 Errors are structured and exit nonzero without dumping query values or driver
-messages. History, scripts, and exports remain planned.
+messages. Scripts and exports remain planned.
+
+## Local operation history
+
+`runnel history` reads the most recent entries first without starting a daemon or
+reading credentials. History is on by default for database operations submitted
+to the daemon. It retains the latest 1,000 entries in a private file below the
+catalog directory, with a 1 MiB file cap. Each entry contains configured environment,
+database alias and connection names when resolved, the operation, its UTC start
+time, elapsed milliseconds, and a sanitized success/error outcome. Duration includes
+queue waiting. It omits collection names, filters, arguments, scripts, returned
+documents, credentials, physical database names, and driver error messages.
+
+Set `settings.historyEnabled` to `false` in `catalog.json` to disable recording
+for newly submitted operations. An absent setting means enabled. Existing entries
+remain available. Setup discovery, lifecycle commands, offline discovery, and
+requests rejected before submission do not add entries.
+
+History failures produce `warning: "HistoryUnavailable"` and a diagnostic on
+stderr. The database result and exit status stay intact. A corrupt history file
+is preserved for inspection. This is lightweight local history; a hard daemon
+kill or machine failure can leave an operation unrecorded, and an error outcome
+does not establish whether a writing pipeline completed before interruption.

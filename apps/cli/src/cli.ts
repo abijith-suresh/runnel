@@ -16,6 +16,7 @@ Usage:
   runnel envs
   runnel connections -e <environment>
   runnel databases -e <environment>
+  runnel history
   runnel list -e <environment> [-d <database>]
   runnel describe <collection> -e <environment> [-d <database>]
   runnel find <collection> -e <environment> [--filter-file <file>] [--limit <n>]
@@ -38,7 +39,7 @@ Query options:
   --skip                          Find offset, default 0
   --format                        ejson (default) or relaxed json
 
-Scripts, exports, and history are planned.
+Scripts and exports are planned.
 `;
 
 const queryCommands = ["describe", "find", "count", "aggregate"];
@@ -94,9 +95,16 @@ async function main(): Promise<number> {
             ? 0
             : 1) ||
       (command !== undefined &&
-        !["setup", "envs", "connections", "databases", "list", "daemon", ...queryCommands].includes(
-          command
-        )) ||
+        ![
+          "setup",
+          "envs",
+          "connections",
+          "databases",
+          "history",
+          "list",
+          "daemon",
+          ...queryCommands,
+        ].includes(command)) ||
       (command === "daemon" && !["status", "reset", "stop"].includes(positionals[1] ?? "")) ||
       (values.env !== undefined &&
         !["connections", "databases", "list", ...queryCommands].includes(command ?? "")) ||
@@ -118,6 +126,22 @@ async function main(): Promise<number> {
   }
 
   const command = positionals[0];
+  if (command === "history") {
+    const [{ catalogDirectory }, { readHistory, historyMaximumEntries, historyMaximumBytes }] =
+      await Promise.all([import("./catalog.js"), import("./history.js")]);
+    try {
+      const entries = await readHistory(catalogDirectory());
+      process.stdout.write(
+        `${JSON.stringify({ ok: true, data: { entries, limits: { entries: historyMaximumEntries, bytes: historyMaximumBytes } } })}\n`
+      );
+      return 0;
+    } catch {
+      process.stdout.write(
+        `${JSON.stringify({ ok: false, error: { code: "HistoryUnavailable", message: "Cannot read private Runnel operation history. Check its path, permissions, and format." } })}\n`
+      );
+      return 1;
+    }
+  }
   if (command === "setup") {
     const [{ catalogDirectory }, { setup }] = await Promise.all([
       import("./catalog.js"),
@@ -172,6 +196,8 @@ async function main(): Promise<number> {
       };
     }
     process.stdout.write(`${JSON.stringify(result)}\n`);
+    if ("warning" in result && result.warning === "HistoryUnavailable")
+      process.stderr.write("Cannot save local operation history.\n");
     return result.ok ? 0 : 1;
   }
   if (command === "envs" || command === "connections" || command === "databases") {

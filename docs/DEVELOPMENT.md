@@ -28,7 +28,8 @@ repository credential or release workflow is required.
   Credential rotation and catalog migration remain future work.
 - Implemented: describe, find, count, aggregate, bounded JSON/EJSON results, and
   structured errors. Inputs support inline values, files, and stdin.
-- Planned next: sanitized local operation history.
+- Implemented: bounded private operation history, offline inspection, a catalog
+  opt-out setting, and sanitized outcomes.
 - Planned: attached JavaScript scripts with native `db`, cross-environment
   `connect`, `args`, `signal`, and `bson`, deadlines, reset behavior, and exports.
 - Planned: installed-artifact integration tests, Windows checks, and a local
