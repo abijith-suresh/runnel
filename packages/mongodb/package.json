@@ -1,6 +1,6 @@
 {
   "name": "@abijith-suresh/runnel-mongodb",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "MongoDB connection pools for the Runnel worker",
   "type": "module",
   "license": "MIT",
@@ -40,7 +40,7 @@
     "test": "npm run build && node --test test/*.test.mts"
   },
   "dependencies": {
-    "@abijith-suresh/runnel-core": "0.0.4",
+    "@abijith-suresh/runnel-core": "0.0.5",
     "effect": "4.0.1",
     "mongodb": "7.7.0"
   }

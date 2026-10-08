@@ -1,5 +1,15 @@
 # @abijith-suresh/runnel
 
+## 0.0.5
+
+### Patch Changes
+
+- a918f7e: Add attached CLI script execution with plain JSON inline/file/stdin arguments, catalog deadline defaults and duration overrides, bounded JSON/EJSON output, and cancellation without replay. Removing a queued caller preserves active work; interrupting or disconnecting an active script stops its worker and discards the queue. Keep long and disabled deadlines free of transport response timeouts.
+- b821c0d: Add bounded JSON/EJSON exports to new files, with query options, explicit truncation, and atomic creation that preserves existing destinations.
+- 583e8e5: Add an internal persistent-worker JavaScript runner with native database handles, cross-environment connects, plain JSON arguments, BSON helpers, bounded JSON/EJSON results, sanitized errors, explicit deadlines, and reset requirements for edited entry scripts. Record one private history entry per script operation.
+- @abijith-suresh/runnel-core@0.0.5
+  - @abijith-suresh/runnel-mongodb@0.0.5
+
 ## 0.0.4
 
 ### Patch Changes
