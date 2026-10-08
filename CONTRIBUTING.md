@@ -29,6 +29,7 @@ npm run verify
 | `npm run pack:check` | Builds, checks pack destinations, and validates isolated tarball installs |
 | `npm run verify` | Runs the complete development baseline verification |
 | `npm run check:native-credentials` | Optional OS credential round-trip with one synthetic value and cleanup; requires an unlocked vault |
+| `npm run check:mongodb` | Optional installed-tarball smoke check against a loopback test MongoDB server and native credential storage |
 | `npm run version:packages` | Guards and applies a patch-only release plan, then updates the lockfile |
 
 Typechecking checks dependency declarations as well as source, with
@@ -37,6 +38,7 @@ flag. `npm run verify` needs no database or credential configuration. The option
 `check:native-credentials` command accesses OS storage, verifies persistence from
 a second process, and removes its synthetic entry. Run packaging and versioning
 helpers through npm so they inherit the npm JavaScript entry point.
+See [local testing](docs/LOCAL_TESTING.md) for the MongoDB probe and manual CLI use.
 
 ## Branches and pull requests
 

@@ -27,7 +27,7 @@ runnel daemon reset
 runnel daemon stop
 ```
 
-Help lists available flags and marks remaining commands as planned. Version output
+Help lists available commands and flags. Version output
 comes from the installed package metadata. Both write to stdout and exit with
 status 0. If both flags are supplied, help takes precedence.
 
@@ -69,6 +69,9 @@ Run CLI tests with `npm test --workspace @abijith-suresh/runnel`.
 `npm run pack:check` checks
 all package artifacts and imports in a temporary local consumer without global
 installation or publication.
+The repository's [local testing guide](../../docs/LOCAL_TESTING.md) also covers
+manual setup and `npm run check:mongodb`, an optional installed-package check
+against a local test server with native credential storage.
 
 See [the repository](https://github.com/abijith-suresh/runnel) for planned commands
 and development documentation. This package has not been published.

@@ -3,10 +3,19 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runNpm as invokeNpm } from "./npm-command.mjs";
 import { packages, validateRepository } from "./release-policy.mjs";
 
 const root = process.cwd();
+const integration = process.argv[2] === "--mongodb";
+assert(process.argv.length === (integration ? 3 : 2), "Unsupported packaging check arguments");
+if (integration)
+  assert(
+    /^[1-9][0-9]{0,4}$/.test(process.env.RUNNEL_TEST_MONGODB_PORT ?? "") &&
+      Number(process.env.RUNNEL_TEST_MONGODB_PORT) <= 65535,
+    "Set RUNNEL_TEST_MONGODB_PORT to a local test MongoDB port. The check creates synthetic databases."
+  );
 const { manifests } = validateRepository(root);
 const temporary = mkdtempSync(join(tmpdir(), "runnel-pack-"));
 const runNpm = (args, cwd = root) =>
@@ -198,6 +207,12 @@ try {
   process.stdout.write(
     "All three npm pack dry runs, isolated tarball installs, imports, CLI entry point, worker lifecycle, and daemon lifecycle passed\n"
   );
+  if (integration)
+    execFileSync(
+      process.execPath,
+      [fileURLToPath(new URL("./check-local-mongodb.mjs", import.meta.url)), consumer],
+      { stdio: "inherit", timeout: 180000 }
+    );
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

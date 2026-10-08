@@ -42,8 +42,15 @@ repository credential or release workflow is required.
   Every updated PR head still needs passing required checks before merge.
   POSIX-only checks remain on Linux; native Windows MongoDB and interactive
   terminal behavior remain separate integration work.
-- Planned: installed-artifact MongoDB integration tests, native Windows database
-  and interactive-terminal testing, and a local guide with verified commands.
+- Implemented: optional installed-artifact MongoDB smoke checks and a
+  [local testing guide](LOCAL_TESTING.md). The check passed on Linux in WSL
+  against MongoDB 8.0.32 with native Secret Service storage. It covers target
+  selection, queries, BSON precision, cross-environment native scripts, warm
+  modules, reset, exports, offline discovery, and history privacy.
+  Registration uses the internal setup helper; this check does not exercise
+  interactive terminal prompts or database-user permission denials.
+- Planned: a persistent local package installation for hands-on testing,
+  native Windows database and interactive-terminal testing.
 
 The agreed semantics remain in [DESIGN.md](DESIGN.md). Routine implementation
 defaults may be chosen during these slices and documented when they become real.
