@@ -1,6 +1,6 @@
 {
   "name": "@abijith-suresh/runnel-core",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Shared application concepts and database target selection for Runnel.",
   "type": "module",
   "license": "MIT",
