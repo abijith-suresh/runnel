@@ -54,6 +54,8 @@ export function databaseFailure(error: unknown): WorkerResult {
       "MongoDB rejected the configured credentials. Run setup again."
     );
   const name = error instanceof Error ? error.name : "";
+  if (name === "MongoOperationTimeoutError")
+    return failure("DatabaseTimedOut", "MongoDB exceeded its operation deadline.");
   if (name === "MongoInvalidArgumentError")
     return failure("QueryInvalid", "The query arguments are invalid.");
   if (name === "MongoParseError")

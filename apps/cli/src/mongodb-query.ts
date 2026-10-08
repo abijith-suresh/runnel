@@ -24,7 +24,18 @@ function encode(document: Document, format: "json" | "ejson"): Schema.JsonObject
         );
     } else if (Array.isArray(value)) {
       for (const item of value) checkLongs(item);
-    } else if (value !== null && typeof value === "object" && !("_bsontype" in value)) {
+    } else if (value instanceof BSON.Code) {
+      checkLongs(value.scope);
+    } else if (value instanceof BSON.DBRef) {
+      checkLongs(value.oid);
+      checkLongs(value.fields);
+    } else if (value instanceof Map) {
+      for (const item of value.values()) checkLongs(item);
+    } else if (
+      value !== null &&
+      typeof value === "object" &&
+      [Object.prototype, null].includes(Object.getPrototypeOf(value))
+    ) {
       for (const item of Object.values(value)) checkLongs(item);
     }
   };

@@ -8,7 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { MongoPool } from "@abijith-suresh/runnel-mongodb";
 import * as Effect from "effect/Effect";
-import { BSON } from "mongodb";
+import { BSON, MongoOperationTimeoutError } from "mongodb";
 import { emptyCatalog } from "../dist/catalog.js";
 import {
   executeQuery,
@@ -25,7 +25,7 @@ import {
   readQueryInput,
 } from "../dist/query-input.js";
 import { credentialStore } from "../dist/secrets.js";
-import { workerOperations } from "../dist/worker-operations.js";
+import { databaseFailure, workerOperations } from "../dist/worker-operations.js";
 import { decodeOperation, decodeResponse } from "../dist/worker-protocol.js";
 
 type Db = Awaited<ReturnType<MongoPool["database"]>>;
@@ -103,6 +103,56 @@ test("file and stdin input reads are bounded, UTF-8 and regular-file only", asyn
     const fifo = join(directory, "fifo");
     execFileSync("mkfifo", [fifo]);
     await assert.rejects(readQueryInput(fifo), QueryError);
+  }
+});
+
+test("numeric EJSON wrappers reject overflow, malformed strings, and conflicting fields before query execution", async () => {
+  for (const wrapper of [
+    { $numberLong: "9223372036854775808" },
+    { $numberLong: "-9223372036854775809" },
+    { $numberLong: "1.5" },
+    { $numberLong: "junk" },
+    { $numberInt: "2147483648" },
+    { $numberInt: "-2147483649" },
+    { $numberInt: "1.5" },
+    { $numberInt: "" },
+    { $numberDouble: "junk" },
+    { $numberDouble: "1.5junk" },
+    { $numberDouble: "1e999" },
+    { $numberDouble: " 1.5" },
+    { $numberDouble: "" },
+    { $numberDecimal: "junk" },
+    { $numberDecimal: "1e9999" },
+    { $numberInt: null },
+    { $numberDouble: 1.5 },
+    { $numberLong: "5", extra: true },
+    { $numberLong: "5", $numberInt: "5" },
+  ]) {
+    const input = JSON.stringify({ nested: [{ n: wrapper }] });
+    assert.throws(
+      () => parseQueryObject(input),
+      (error: unknown) => error instanceof QueryError && error.code === "InputInvalid"
+    );
+    assert.throws(() => parsePipeline(JSON.stringify([{ $match: { n: wrapper } }])), QueryError);
+    await assert.rejects(buildQueryRequest("find", "users", { filter: input }), QueryError);
+  }
+  for (const [key, text] of [
+    ["$numberLong", "-9223372036854775808"],
+    ["$numberLong", "9223372036854775807"],
+    ["$numberInt", "-2147483648"],
+    ["$numberInt", "2147483647"],
+    ["$numberDouble", "1.25e2"],
+    ["$numberDouble", "-0.0"],
+    ["$numberDouble", "NaN"],
+    ["$numberDouble", "Infinity"],
+    ["$numberDouble", "-Infinity"],
+    ["$numberDecimal", "1.25"],
+  ] as const) {
+    const parsed = parseQueryObject(JSON.stringify({ n: { [key]: text } }));
+    assert.deepEqual(
+      parsed["n"],
+      BSON.EJSON.parse(JSON.stringify({ [key]: text }), { relaxed: false })
+    );
   }
 });
 
@@ -285,6 +335,70 @@ test("aggregate passes the user's pipeline unchanged and bounds only returned do
   assert.equal(state.closed, 1);
 });
 
+test("nested BSON containers and ordinary _bsontype fields cannot bypass relaxed Int64 precision checks", async () => {
+  const long = BSON.Long.fromString("9007199254740993");
+  for (const value of [
+    new BSON.Code("return n", { n: long }),
+    new BSON.DBRef("users", new BSON.ObjectId(), undefined, { n: long }),
+    // DBRef's EJSON convention allows arbitrary IDs despite its narrow constructor type.
+    new BSON.DBRef("users", long as unknown as BSON.ObjectId),
+    { _bsontype: undefined, n: long },
+    { _bsontype: null, nested: [{ n: long }] },
+    new Map([["nested", { n: long }]]),
+    Object.assign(Object.create(null), { n: long }),
+  ]) {
+    for (const format of ["json", "ejson"] as const) {
+      const state = { visited: 0, closed: 0 };
+      const document = { value };
+      const handle = {
+        collection: () => ({ find: () => cursor([document], state) }),
+      } as unknown as Db;
+      if (format === "json")
+        await assert.rejects(
+          runQuery(handle, query("find", { format })),
+          (error: unknown) => error instanceof QueryError && error.code === "ResultPrecisionLoss"
+        );
+      else if (
+        value !== null &&
+        typeof value === "object" &&
+        "_bsontype" in value &&
+        value._bsontype === null
+      )
+        // The driver cannot encode this reserved BSON marker; failure must still close the cursor.
+        await assert.rejects(
+          runQuery(handle, query("find", { format })),
+          (error: unknown) => error instanceof QueryError && error.code === "ResultEncodingFailed"
+        );
+      else {
+        const result = await runQuery(handle, query("find", { format }));
+        assert(result.ok && "documents" in result.data);
+        assert.deepEqual(
+          result.data.documents[0],
+          BSON.EJSON.serialize(document, { relaxed: false })
+        );
+        assert(
+          JSON.stringify(result.data.documents[0]).includes('"$numberLong":"9007199254740993"')
+        );
+      }
+      assert.equal(state.closed, 1);
+    }
+  }
+});
+
+test("driver operation deadlines produce sanitized structured timeout errors", async () => {
+  const error = new MongoOperationTimeoutError("private-arguments/returned-documents/secret-uri");
+  const state = { visited: 0, closed: 0 };
+  const handle = {
+    collection: () => ({ find: () => cursor([], state, error) }),
+  } as unknown as Db;
+  await assert.rejects(runQuery(handle, query("find")), (caught: unknown) => caught === error);
+  assert.equal(state.closed, 1);
+  assert.deepEqual(databaseFailure(error), {
+    ok: false,
+    error: { code: "DatabaseTimedOut", message: "MongoDB exceeded its operation deadline." },
+  });
+});
+
 test("count returns exact safe integers, zero for empty, and canonical wrappers for large counts", async () => {
   for (const [value, expected] of [
     [new BSON.Int32(3), 3],
@@ -431,9 +545,16 @@ test("worker query validation and name resolution fail before credential or pool
       },
     }
   );
-  const invalid = await operations.execute(query("find", { filter: "[]" }));
-  assert(!invalid.ok);
-  assert.equal(invalid.error.code, "InputInvalid");
+  for (const filter of [
+    "[]",
+    '{"n":{"$numberLong":"9223372036854775808"}}',
+    '{"n":{"$numberInt":"2147483648"}}',
+    '{"n":{"$numberDouble":"junk"}}',
+  ]) {
+    const invalid = await operations.execute(query("find", { filter }));
+    assert(!invalid.ok);
+    assert.equal(invalid.error.code, "InputInvalid");
+  }
   const unknown = await operations.execute(query("find"));
   assert(!unknown.ok);
   assert.equal(unknown.error.code, "EnvironmentNotFound");

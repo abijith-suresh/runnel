@@ -24,6 +24,23 @@ const object = (value: unknown): value is Document =>
   !Array.isArray(value) &&
   [Object.prototype, null].includes(Object.getPrototypeOf(value));
 
+/** The driver's EJSON parser coerces some malformed numeric wrappers instead of rejecting them. */
+function validateNumericWrapper(value: unknown): void {
+  if (!object(value)) return;
+  for (const key of ["$numberInt", "$numberLong", "$numberDouble", "$numberDecimal"]) {
+    if (!Object.hasOwn(value, key)) continue;
+    const text: unknown = value[key];
+    if (Object.keys(value).length !== 1 || typeof text !== "string") throw invalid();
+    if (key === "$numberInt") BSON.Int32.fromString(text);
+    else if (key === "$numberLong") {
+      if (!/^[+-]?\d+$/.test(text)) throw invalid();
+      const integer = BigInt(text);
+      if (integer < -(1n << 63n) || integer > (1n << 63n) - 1n) throw invalid();
+    } else if (key === "$numberDouble") BSON.Double.fromString(text);
+    else BSON.Decimal128.fromString(text);
+  }
+}
+
 function parse(text: string): unknown {
   try {
     if (Buffer.byteLength(text, "utf8") > inputLimitBytes) throw oversized();
@@ -33,6 +50,7 @@ function parse(text: string): unknown {
         (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))
       )
         throw invalid();
+      validateNumericWrapper(value);
       return value;
     });
     return BSON.EJSON.parse(text, { relaxed: false });

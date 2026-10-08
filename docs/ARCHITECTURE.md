@@ -330,8 +330,9 @@ encoder. Envelopes and their limits/count metadata use ordinary JSON numbers whe
 safe. `--format json` uses relaxed Extended JSON; BSON identifiers, dates, binary,
 and decimals still use their standard wrappers. Numeric width can be lost, but
 unsafe Int64 conversion fails with `ResultPrecisionLoss` instead of rounding.
-Input numeric literals must be finite and safe when integral. Explicit EJSON
-wrappers supply larger integers or nonfinite doubles. Driver error codes can also
+Input numeric literals must be finite and safe when integral. Numeric EJSON
+wrappers are checked for valid syntax and type bounds before driver conversion;
+they supply larger integers or explicit nonfinite doubles. Driver error codes can also
 arrive as BSON numeric wrappers; classification normalizes them before mapping
 permission, authentication, invalid-query, missing-collection, and timeout errors.
 
