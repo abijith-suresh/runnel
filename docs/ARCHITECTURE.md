@@ -485,3 +485,25 @@ without overwrite. Cleanup removes temporary files on ordinary errors. Abrupt
 termination can leave temporary files; there is no crash-recovery scanner.
 Filesystems without hard-link support report a structured save error. Native
 Windows file permissions and lifecycle remain unvalidated.
+
+## Platform verification
+
+Packaging and guarded versioning invoke npm's JavaScript entry point through the
+current Node executable. This avoids invoking `npm.cmd` directly and keeps paths
+and arguments separate from shell parsing. These helpers require an npm script
+context; direct Node invocation without `npm_execpath` fails with an instruction
+to use npm. Policy fixtures use the same helper.
+
+The required `Baseline verified` job includes a native Windows job alongside
+Linux verification. Windows runs `npm run verify`, including strict types,
+release-policy tests, workspace behavior, isolated package installs, workers and
+daemon lifecycle. POSIX-only permissions, FIFO and signal checks remain on Linux.
+The Windows job also verifies one synthetic credential through the native store,
+reads it in a second process, then deletes it and checks that it is absent.
+The optional `npm run check:native-credentials` command runs this probe locally.
+It uses no catalog or database and emits no stored value. Missing passwords
+returned as either native `null` or `undefined` map to `SecretNotFound`; native
+store failures still map to `SecretUnavailable`.
+
+CI coverage does not establish native Windows MongoDB or interactive Ctrl+C
+behavior. Those remain separate integration checks for the target workstation.

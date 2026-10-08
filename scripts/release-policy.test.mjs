@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { gitEnvironment } from "./git-environment.mjs";
+import { runNpm } from "./npm-command.mjs";
 import {
   checkPullRequest,
   nextPatch,
@@ -166,11 +167,11 @@ test("the guarded Changesets command produces a valid aligned version PR", (t) =
     "scripts/git-environment.mjs",
     "scripts/release-policy.mjs",
     "scripts/version-packages.mjs",
+    "scripts/npm-command.mjs",
   ]) {
     f.write(path, readFileSync(resolve(path), "utf8"));
   }
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  execFileSync(npm, ["ci", "--ignore-scripts", "--offline", "--no-audit", "--no-fund"], {
+  runNpm(["ci", "--ignore-scripts", "--offline", "--no-audit", "--no-fund"], {
     cwd: f.root,
     env: gitEnvironment(),
     stdio: ["ignore", "pipe", "pipe"],

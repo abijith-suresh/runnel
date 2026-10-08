@@ -21,6 +21,32 @@ jobs:
     permissions:
       contents: read
 
+  windows-quality:
+    name: Windows quality
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install pinned npm and dependencies
+        run: |
+          npm install --global npm@11.16.0
+          npm ci --ignore-scripts
+      - name: Verify packages, behavior and patch policy
+        run: npm run verify
+      - name: Check native credential persistence and cleanup
+        run: npm run check:native-credentials
+
   pr-title:
     name: PR title
     if: github.event_name == 'pull_request'
@@ -57,7 +83,7 @@ jobs:
   baseline-verified:
     name: Baseline verified
     if: always()
-    needs: [npm-quality, pr-title, changeset-policy]
+    needs: [npm-quality, windows-quality, pr-title, changeset-policy]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -65,11 +91,13 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           QUALITY: ${{ needs.npm-quality.result }}
+          WINDOWS: ${{ needs.windows-quality.result }}
           TITLE: ${{ needs.pr-title.result }}
           POLICY: ${{ needs.changeset-policy.result }}
         run: |
           set -euo pipefail
           test "$QUALITY" = success
+          test "$WINDOWS" = success
           if [[ "$EVENT" == pull_request ]]; then
             test "$TITLE" = success
             test "$POLICY" = success

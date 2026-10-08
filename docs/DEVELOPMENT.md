@@ -37,8 +37,11 @@ repository credential or release workflow is required.
   overrides, zero deadlines, and attached cancellation are implemented.
 - Implemented: bounded JSON/EJSON exports, query options, new-file creation and
   explicit truncation metadata.
-- Planned: installed-artifact integration tests, Windows checks, and a local
-  testing guide with commands that have been run against synthetic fixtures.
+- CI now includes native Windows verification and a synthetic OS credential
+  persistence/cleanup probe. Results must pass before merging; configuring the
+  job alone does not establish native Windows compatibility.
+- Planned: installed-artifact MongoDB integration tests, native Windows database
+  and interactive-terminal testing, and a local guide with verified commands.
 
 The agreed semantics remain in [DESIGN.md](DESIGN.md). Routine implementation
 defaults may be chosen during these slices and documented when they become real.

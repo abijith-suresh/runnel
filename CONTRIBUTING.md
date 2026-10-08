@@ -28,11 +28,15 @@ npm run verify
 | `npm run changeset:check` | Checks a PR using full `BASE_SHA` and `HEAD_SHA` environment values |
 | `npm run pack:check` | Builds, checks pack destinations, and validates isolated tarball installs |
 | `npm run verify` | Runs the complete development baseline verification |
+| `npm run check:native-credentials` | Optional OS credential round-trip with one synthetic value and cleanup; requires an unlocked vault |
 | `npm run version:packages` | Guards and applies a patch-only release plan, then updates the lockfile |
 
 Typechecking checks dependency declarations as well as source, with
 `skipLibCheck` disabled. Package scripts can be selected with npm's `--workspace`
-flag. No database or credential configuration is needed for these checks.
+flag. `npm run verify` needs no database or credential configuration. The optional
+`check:native-credentials` command accesses OS storage, verifies persistence from
+a second process, and removes its synthetic entry. Run packaging and versioning
+helpers through npm so they inherit the npm JavaScript entry point.
 
 ## Branches and pull requests
 
@@ -59,7 +63,7 @@ gh pr create
 
 The initial baseline bootstraps `main` once. Future changes go through PRs.
 GitHub requires the `Baseline verified` check, which combines quality,
-Changeset policy, and PR title results. `main` requires an up-to-date branch and
+Changeset policy, PR title, and native Windows quality results. `main` requires an up-to-date branch and
 resolved conversations. No approving review is required, so the owner can merge
 their own PR after checks pass. Administrators are included; force pushes and
 branch deletion are blocked. The owner can change repository settings, as with
@@ -67,7 +71,10 @@ any owner-managed repository. Merge using GitHub's squash merge after review.
 
 CI reuses the owner's shared npm quality and Conventional Commit title workflows
 at a pinned commit. It runs with read-only permissions and no release credentials.
-There is no publication or auto-merge workflow in this baseline.
+A repository-owned Windows job runs the full verification suite and the synthetic
+native credential probe. POSIX-only filesystem and signal tests stay on Linux.
+Native MongoDB and interactive terminal behavior still need separate platform
+integration testing. There is no publication or auto-merge workflow.
 
 ## Package boundaries and documentation
 

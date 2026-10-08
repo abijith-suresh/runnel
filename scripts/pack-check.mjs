@@ -3,14 +3,14 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { runNpm as invokeNpm } from "./npm-command.mjs";
 import { packages, validateRepository } from "./release-policy.mjs";
 
 const root = process.cwd();
 const { manifests } = validateRepository(root);
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const temporary = mkdtempSync(join(tmpdir(), "runnel-pack-"));
 const runNpm = (args, cwd = root) =>
-  execFileSync(npm, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  invokeNpm(args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
 try {
   const tarballs = [];
   for (const [index, pkg] of packages.entries()) {
