@@ -4,12 +4,13 @@
 `runnel`. Bare npm `runnel` belongs to an existing package. The CLI depends on
 the matching public core and MongoDB packages, plus Effect v4.
 
-The CLI supports information flags, offline discovery, collection listing, and
+The CLI supports information flags, human setup, offline discovery, collection listing, and
 daemon lifecycle commands:
 
 ```sh
 runnel --help     # also -h; no arguments show help too
 runnel --version  # also -v
+runnel setup
 runnel envs
 runnel connections -e local
 runnel databases -e local
@@ -42,9 +43,7 @@ commands never start a missing daemon. The daemon shuts down after five minutes
 of inactivity by default; active and queued work prevent shutdown. Stop the old
 daemon after installing another Runnel version before running database work.
 
-Setup, history, scripts, and other database commands remain planned. Catalog and
-credential helpers are internal; there is no interactive registration command
-yet. The library entry point still exports an empty
+History, scripts, and other database commands remain planned. The library entry point still exports an empty
 module; there is no public CLI composition API.
 
 For local development, build at the repository root and invoke the compiled CLI:
@@ -68,8 +67,32 @@ The catalog is `catalog.json` under `$XDG_CONFIG_HOME/runnel` or
 `~/.config/runnel` on Linux, and `%APPDATA%/runnel` on Windows. An absolute
 `RUNNEL_HOME` overrides that directory for isolated testing. A missing catalog
 returns empty discovery results. Invalid or unreadable catalogs fail; they do
-not silently become empty. The CLI currently reads only. Human setup will create
-the catalog in a subsequent change. Internal atomic catalog-write and native
-credential helpers are implemented, but have no standalone CLI command.
+not silently become empty. Human setup creates and updates this catalog with
+serialized atomic replacement; it stores only OS secret references.
 Its schema is documented in
 [the current architecture](../../docs/ARCHITECTURE.md#catalog-and-offline-discovery).
+
+
+## Registering a connection
+
+Run `runnel setup` in an interactive terminal. Choose an environment and a new
+connection name, then enter the MongoDB URI at the hidden prompt. The worker lists
+accessible databases. Choose a listed number or enter a physical database name,
+then name its alias. Repeat for more aliases, leave the database selection blank,
+and confirm saving. Use `m` for manual entry when the physical name is a number
+or the literal `m`. At least one alias is required.
+
+Setup permits manual names when discovery returns no databases or the database
+user lacks listing permission. It does not verify access to manually entered
+names. Authentication and connectivity failures stop setup. Configured names are
+never overwritten; use a new connection and new aliases for another registration.
+The same URI registered elsewhere gets a separate credential entry. Editing
+registrations and credential rotation remain future work.
+
+Prompts go to stderr; the final result is a JSON envelope on stdout. Ctrl+C, EOF,
+or declining the save cancels before registration. Credentials cannot be supplied
+through CLI flags or piped stdin. Setup input is limited to 16 KiB per answer.
+Linux requires an unlocked Secret Service store, such as GNOME Keyring, and a
+session D-Bus connection. Windows uses native credential storage through the same
+binding; native Windows setup has not yet been tested. Discovery can start the
+daemon even if setup is later cancelled; `runnel daemon stop` stops it explicitly.

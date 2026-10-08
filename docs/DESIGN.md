@@ -6,7 +6,8 @@ environment and database alias selection, described in
 implements help/version flags, offline catalog discovery, and internal catalog
 and credential storage helpers. Internal worker supervision, MongoDB pools,
 connection inspection, and collection listing are also implemented. CLI `list`
-now starts a daemon, and daemon lifecycle commands are available. Other database
+now starts a daemon, and daemon lifecycle commands are available. Human `setup`
+registers new connections and named aliases. Other database
 commands, history, scripts, and the remaining product behavior below remain
 **planned**. The document preserves
 the decisions from the initial discussion so later tasks can build from them
@@ -38,7 +39,8 @@ secret references. Human setup prompts for a hidden URI, lists accessible
 databases, and lets the human choose and name aliases. Manual database entry
 remains possible. The CLI uses `@napi-rs/keyring` for native credential storage and
 validated JSON with serialized atomic replacement for catalog updates. These
-internal helpers exist; the interactive human setup flow is still planned.
+helpers now support interactive `setup`. It adds new connections and aliases;
+editing existing registrations and rotating credentials remain future work.
 
 Every database command requires `-e` or `--env`. Infer `-d` or `--db` only when
 that environment has exactly one database alias. Do not put a `mongo` prefix in
@@ -123,7 +125,8 @@ remain implementation defaults or decisions. No finalized values are claimed her
 ## Planned command examples
 
 `envs`, `connections`, and `databases` run offline. `list` and the three daemon
-lifecycle commands also run now. Setup and the other commands below remain planned:
+lifecycle commands also run now. `setup` is implemented with an interactive terminal.
+The remaining database and script examples below are planned:
 
 ```sh
 runnel setup
