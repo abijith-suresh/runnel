@@ -9,7 +9,7 @@ connection inspection, and collection listing are also implemented. CLI `list`
 now starts a daemon, and daemon lifecycle commands are available. Human `setup`
 registers new connections and named aliases. `describe`, `find`, `count`, and
 `aggregate` are implemented with bounded JSON/EJSON output. History is on by default.
-The internal JavaScript runner is implemented. CLI script invocation, exports,
+Attached CLI JavaScript invocation is implemented. Exports
 and the remaining product behavior below remain
 **planned**. The document preserves
 the decisions from the initial discussion so later tasks can build from them
@@ -73,7 +73,7 @@ The prior research thread was `mcp:4498efc8-20cb-44e4-9be9-b42471eff35a`, titled
 this single persistent worker architecture, local native driver handles, and
 explicit resets. The internal worker now follows that ownership and queueing
 model. Daemon startup, idle shutdown, and user-facing reset/stop/status are now
-implemented. Internal script execution is implemented; CLI invocation remains planned.
+implemented. Attached CLI script execution is now implemented.
 
 ## Scripts
 
@@ -87,8 +87,8 @@ a default async function receiving `{ db, args, connect, signal, bson }`.
 - `bson` supplies `ObjectId` and related BSON utilities. The script directory
   does not need its own MongoDB driver installation.
 
-The internal worker now supplies this context. CLI invocation and its input
-options remain planned:
+The worker supplies this context through CLI `run`, with inline/file/stdin JSON
+arguments, deadline options, and cancellation:
 
 ```js
 export default async function ({ db, args, connect, signal, bson }) {
@@ -130,12 +130,12 @@ Query defaults and BSON behavior are now documented in
 and retention are documented there as well. Export limits remain implementation
 decisions.
 
-## Planned command examples
+## Command examples
 
 `envs`, `connections`, and `databases` run offline. `list` and the three daemon
 lifecycle commands also run now. `setup` is implemented with an interactive terminal.
-`describe`, `find`, `count`, and `aggregate` also run now. The script and export
-examples below remain planned. History is available through offline `runnel history`
+`describe`, `find`, `count`, `aggregate`, and `run` also run now. The export
+example below remains planned. History is available through offline `runnel history`
 inspection.
 
 ```sh

@@ -62,6 +62,7 @@ with hidden URI input, worker-owned discovery, and OS credential storage. It nev
 overwrites configured names. The worker now executes `describe`, `find`, `count`,
 and `aggregate` with bounded JSON/EJSON results. Operation history is on by default;
 the internal script runner now uses real native handles, cross-environment connects,
-BSON helpers, bounded results, and explicit deadlines. CLI script invocation and
-exports remain planned. Keep this status and the owning documents
+BSON helpers, bounded results, and explicit deadlines. CLI `run` is attached, supports
+JSON inline/file/stdin arguments and deadline options, and cancels without replay.
+Exports remain planned. Keep this status and the owning documents
 accurate as each slice lands.

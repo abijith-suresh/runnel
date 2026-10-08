@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import type { DaemonResponse } from "./daemon-protocol.js";
 import type { QueryCommand, QueryValues } from "./query-command.js";
+import type { ScriptValues } from "./script-command.js";
 import type { SetupResult } from "./setup.js";
 
 const help = `Runnel
@@ -22,6 +23,7 @@ Usage:
   runnel find <collection> -e <environment> [--filter-file <file>] [--limit <n>]
   runnel count <collection> -e <environment> [--filter-file <file>]
   runnel aggregate <collection> -e <environment> --pipeline-file <file> [--limit <n>]
+  runnel run <script.mjs> -e <environment> [-d <database>] [--args-file <file>] [--timeout 5m]
   runnel daemon status | reset | stop
 
 Options:
@@ -39,7 +41,12 @@ Query options:
   --skip                          Find offset, default 0
   --format                        ejson (default) or relaxed json
 
-Scripts and exports are planned.
+Script options:
+  --args, --args-file  Plain JSON arguments; file - reads stdin, default {}
+  --timeout           Whole ms/s/m/h duration or 0 to disable; catalog default is 5m
+
+Scripts stay attached. Interrupting the CLI stops active script work without replay.
+Exports are planned.
 `;
 
 const queryCommands = ["describe", "find", "count", "aggregate"];
@@ -67,10 +74,11 @@ const optionCommands: Record<(typeof queryOptions)[number], readonly string[]> =
   "pipeline-file": ["aggregate"],
   limit: ["find", "aggregate"],
   skip: ["find"],
-  format: queryCommands,
+  format: [...queryCommands, "run"],
 };
+const scriptOptions = ["args", "args-file", "timeout"] as const;
 async function main(): Promise<number> {
-  let values: QueryValues & { help?: boolean; version?: boolean };
+  let values: QueryValues & ScriptValues & { help?: boolean; version?: boolean };
   let positionals: string[];
   try {
     const parsed = parseArgs({
@@ -80,6 +88,7 @@ async function main(): Promise<number> {
         env: { type: "string", short: "e" },
         db: { type: "string", short: "d" },
         ...Object.fromEntries(queryOptions.map((key) => [key, { type: "string" }])),
+        ...Object.fromEntries(scriptOptions.map((key) => [key, { type: "string" }])),
       },
       strict: true,
       allowPositionals: true,
@@ -89,7 +98,7 @@ async function main(): Promise<number> {
     const command = positionals[0];
     if (
       positionals.length !==
-        (command === "daemon" || queryCommands.includes(command ?? "")
+        (command === "daemon" || command === "run" || queryCommands.includes(command ?? "")
           ? 2
           : command === undefined
             ? 0
@@ -103,15 +112,17 @@ async function main(): Promise<number> {
           "history",
           "list",
           "daemon",
+          "run",
           ...queryCommands,
         ].includes(command)) ||
       (command === "daemon" && !["status", "reset", "stop"].includes(positionals[1] ?? "")) ||
       (values.env !== undefined &&
-        !["connections", "databases", "list", ...queryCommands].includes(command ?? "")) ||
-      (values.db !== undefined && command !== "list" && !queryCommands.includes(command ?? "")) ||
+        !["connections", "databases", "list", "run", ...queryCommands].includes(command ?? "")) ||
+      (values.db !== undefined && !["list", "run", ...queryCommands].includes(command ?? "")) ||
       queryOptions.some(
         (key) => values[key] !== undefined && !optionCommands[key].includes(command ?? "")
       ) ||
+      (command !== "run" && scriptOptions.some((key) => values[key] !== undefined)) ||
       (values.version && command !== undefined)
     )
       throw new Error("Unsupported arguments");
@@ -126,6 +137,50 @@ async function main(): Promise<number> {
   }
 
   const command = positionals[0];
+  if (command === "run") {
+    const controller = new AbortController();
+    let interrupted: number | undefined;
+    const interrupt = () => {
+      interrupted = 130;
+      controller.abort();
+    };
+    const terminate = () => {
+      interrupted = 143;
+      controller.abort();
+    };
+    process.once("SIGINT", interrupt);
+    process.once("SIGTERM", terminate);
+    try {
+      const [{ catalogDirectory }, { runScriptCommand }] = await Promise.all([
+        import("./catalog.js"),
+        import("./script-command.js"),
+      ]);
+      let result: DaemonResponse;
+      try {
+        result = await runScriptCommand(
+          catalogDirectory(),
+          positionals[1] ?? "",
+          values,
+          controller.signal
+        );
+      } catch {
+        result = {
+          ok: false,
+          error: {
+            code: "CatalogInvalid",
+            message: "Runnel configuration paths must be absolute.",
+          },
+        };
+      }
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+      if ("warning" in result && result.warning === "HistoryUnavailable")
+        process.stderr.write("Cannot save local operation history.\n");
+      return interrupted ?? (result.ok ? 0 : 1);
+    } finally {
+      process.off("SIGINT", interrupt);
+      process.off("SIGTERM", terminate);
+    }
+  }
   if (command === "history") {
     const [{ catalogDirectory }, { readHistory, historyMaximumEntries, historyMaximumBytes }] =
       await Promise.all([import("./catalog.js"), import("./history.js")]);

@@ -16,11 +16,18 @@ import { daemonStateError, packageVersion, readDaemonState } from "./daemon-stat
 import { bounded, decodeOperation, failure } from "./worker-protocol.js";
 
 class BeforeSend extends Error {}
+const cancelled = () =>
+  failure(
+    "OperationCancelled",
+    "The attached operation was cancelled and was not retried. Database writes may already have occurred."
+  );
 
 export async function daemonExchange(
   descriptor: DaemonDescriptor,
-  command: { action: "status" | "reset" | "stop" } | { action: "execute"; request: unknown }
+  command: { action: "status" | "reset" | "stop" } | { action: "execute"; request: unknown },
+  signal?: AbortSignal
 ): Promise<DaemonResponse> {
+  if (signal?.aborted) throw new BeforeSend();
   if (process.platform !== "win32") {
     let info: Awaited<ReturnType<typeof lstat>>;
     try {
@@ -37,14 +44,23 @@ export async function daemonExchange(
   }
   const input = { ...command, token: descriptor.token };
   bounded(input);
+  if (signal?.aborted) throw new BeforeSend();
   const socket = createConnection(descriptor.endpoint);
   let sent = false;
   socket.on("error", () => {});
   socket.setTimeout(2000, () => socket.destroy());
   const response = readFrame(socket);
+  const abort = () => socket.destroy();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
   socket.once("connect", () => {
+    if (signal?.aborted) {
+      socket.destroy();
+      return;
+    }
     sent = true;
-    socket.setTimeout(command.action === "execute" ? 600000 : 5000, () => socket.destroy());
+    // Active operation deadlines belong to the supervisor; queue wait has no response timer.
+    socket.setTimeout(command.action === "execute" ? 0 : 5000, () => socket.destroy());
     socket.write(`${JSON.stringify(input)}\n`);
   });
   try {
@@ -53,17 +69,24 @@ export async function daemonExchange(
     if (!sent) throw new BeforeSend();
     throw error;
   } finally {
+    signal?.removeEventListener("abort", abort);
     socket.destroy();
   }
 }
 
-async function readyDaemon(directory: string): Promise<DaemonDescriptor | DaemonResponse> {
+async function readyDaemon(
+  directory: string,
+  signal?: AbortSignal
+): Promise<DaemonDescriptor | DaemonResponse> {
+  if (signal?.aborted) return cancelled();
   const current = await readDaemonState(directory);
+  if (signal?.aborted) return cancelled();
   if (current) {
     try {
-      const status = await daemonExchange(current, { action: "status" });
+      const status = await daemonExchange(current, { action: "status" }, signal);
       return status.ok ? current : status;
     } catch (error) {
+      if (signal?.aborted) return cancelled();
       if (!(error instanceof BeforeSend))
         return failure(
           "DaemonUnavailable",
@@ -72,6 +95,7 @@ async function readyDaemon(directory: string): Promise<DaemonDescriptor | Daemon
     }
   }
   const catalog = await Effect.runPromise(readCatalog(directory).pipe(Effect.result));
+  if (signal?.aborted) return cancelled();
   if (Result.isFailure(catalog)) return { ok: false, error: catalog.failure };
   const child = spawn(process.execPath, [fileURLToPath(new URL("./daemon.js", import.meta.url))], {
     detached: true,
@@ -85,10 +109,12 @@ async function readyDaemon(directory: string): Promise<DaemonDescriptor | Daemon
   });
   child.unref();
   for (let attempt = 0; attempt < 150 && !failed; attempt++) {
+    if (signal?.aborted) return cancelled();
     const candidate = await readDaemonState(directory);
+    if (signal?.aborted) return cancelled();
     if (candidate) {
       try {
-        const status = await daemonExchange(candidate, { action: "status" });
+        const status = await daemonExchange(candidate, { action: "status" }, signal);
         if (status.ok) {
           if (candidate.pid !== child.pid) child.kill();
           return candidate;
@@ -96,6 +122,7 @@ async function readyDaemon(directory: string): Promise<DaemonDescriptor | Daemon
         child.kill();
         return status;
       } catch (error) {
+        if (signal?.aborted) return cancelled();
         if (!(error instanceof BeforeSend)) {
           child.kill();
           return failure(
@@ -105,7 +132,7 @@ async function readyDaemon(directory: string): Promise<DaemonDescriptor | Daemon
         }
       }
     }
-    await delay(100);
+    await delay(100, undefined, signal ? { signal } : {}).catch(() => undefined);
   }
   child.kill();
   return failure(
@@ -134,8 +161,10 @@ export async function daemonCommand(
 
 export async function executeWithDaemon(
   directory: string,
-  input: unknown
+  input: unknown,
+  signal?: AbortSignal
 ): Promise<DaemonResponse> {
+  if (signal?.aborted) return cancelled();
   let request: ReturnType<typeof decodeOperation>;
   try {
     request = decodeOperation(JSON.parse(JSON.stringify(decodeOperation(input))) as unknown);
@@ -147,7 +176,7 @@ export async function executeWithDaemon(
     );
   }
   try {
-    const ready = await readyDaemon(directory);
+    const ready = await readyDaemon(directory, signal);
     if ("ok" in ready) return ready;
     if (ready.version !== packageVersion())
       return failure(
@@ -155,14 +184,16 @@ export async function executeWithDaemon(
         "The daemon uses another Runnel version. Run runnel daemon stop and retry."
       );
     try {
-      return await daemonExchange(ready, { action: "execute", request });
+      return await daemonExchange(ready, { action: "execute", request }, signal);
     } catch {
+      if (signal?.aborted) return cancelled();
       return failure(
         "OperationOutcomeUnknown",
         "The daemon connection ended without a result. The operation was not retried."
       );
     }
   } catch {
+    if (signal?.aborted) return cancelled();
     return failure(
       "DaemonUnavailable",
       "Cannot prepare the Runnel daemon. Check the catalog and private runtime directory."

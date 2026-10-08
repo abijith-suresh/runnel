@@ -200,18 +200,27 @@ export function parsePipeline(text: string): Document[] {
 /** Bounded regular-file/stdin reads. Neither filenames nor contents enter diagnostics. */
 export async function readQueryInput(
   path: string,
-  stdin: Readable = process.stdin
+  stdin: Readable = process.stdin,
+  signal?: AbortSignal
 ): Promise<string> {
   try {
+    signal?.throwIfAborted();
     let bytes: Buffer;
     if (path === "-") {
       const chunks: Buffer[] = [];
       let length = 0;
-      for await (const chunk of stdin) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
-        length += buffer.length;
-        if (length > inputLimitBytes) throw oversized();
-        chunks.push(buffer);
+      const abort = () => stdin.destroy(new Error("Input cancelled."));
+      signal?.addEventListener("abort", abort, { once: true });
+      try {
+        for await (const chunk of stdin) {
+          signal?.throwIfAborted();
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+          length += buffer.length;
+          if (length > inputLimitBytes) throw oversized();
+          chunks.push(buffer);
+        }
+      } finally {
+        signal?.removeEventListener("abort", abort);
       }
       bytes = Buffer.concat(chunks);
     } else {
@@ -224,6 +233,7 @@ export async function readQueryInput(
         const buffer = Buffer.alloc(inputLimitBytes + 1);
         let length = 0;
         while (length < buffer.length) {
+          signal?.throwIfAborted();
           const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
           if (!bytesRead) break;
           length += bytesRead;
@@ -234,8 +244,11 @@ export async function readQueryInput(
         await file.close();
       }
     }
+    signal?.throwIfAborted();
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (error) {
+    if (signal?.aborted)
+      throw new QueryError("OperationCancelled", "The input read was cancelled.");
     if (error instanceof QueryError) throw error;
     throw new QueryError(
       "InputUnavailable",

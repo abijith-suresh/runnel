@@ -14,6 +14,7 @@ interface Pending {
   timeoutMs: number;
   finish: (result: WorkerResult) => void;
   timer?: NodeJS.Timeout;
+  detach?: () => void;
 }
 interface Session {
   child: ChildProcess;
@@ -38,6 +39,7 @@ export function createWorkerSupervisor(directory: string, options: Options = {})
   let changing: Promise<void> | undefined;
   const settle = (pending: Pending, result: WorkerResult) => {
     if (pending.timer) clearTimeout(pending.timer);
+    pending.detach?.();
     pending.finish(result);
   };
   const failPending = (result: WorkerResult, queuedResult = result) => {
@@ -195,7 +197,13 @@ export function createWorkerSupervisor(directory: string, options: Options = {})
     return changing;
   };
   return {
-    execute(input: unknown, timeoutMs?: number): Promise<WorkerResult> {
+    execute(input: unknown, timeoutMs?: number, signal?: AbortSignal): Promise<WorkerResult> {
+      const cancelled = () =>
+        failure(
+          "OperationCancelled",
+          "The attached operation was cancelled and was not retried. Database writes may already have occurred."
+        );
+      if (signal?.aborted) return Promise.resolve(cancelled());
       if (stopped)
         return Promise.resolve(
           failure("WorkerStopped", "The database worker supervisor is stopped.")
@@ -230,8 +238,32 @@ export function createWorkerSupervisor(directory: string, options: Options = {})
         );
       }
       return new Promise((finish) => {
-        queue.push({ id: randomUUID(), request, timeoutMs, finish });
-        void pump();
+        const pending: Pending = { id: randomUUID(), request, timeoutMs, finish };
+        const cancel = () => {
+          if (active === pending && session) {
+            broken(
+              session,
+              cancelled(),
+              failure(
+                "WorkerRestarted",
+                "The active operation was cancelled. Queued requests were not retried."
+              )
+            );
+          } else {
+            const index = queue.indexOf(pending);
+            if (index >= 0) {
+              queue.splice(index, 1);
+              settle(pending, cancelled());
+            }
+          }
+        };
+        queue.push(pending);
+        if (signal) {
+          signal.addEventListener("abort", cancel, { once: true });
+          pending.detach = () => signal.removeEventListener("abort", cancel);
+        }
+        if (signal?.aborted) cancel();
+        else void pump();
       });
     },
     status: () =>
