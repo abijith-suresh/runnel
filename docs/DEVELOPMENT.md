@@ -37,8 +37,13 @@ repository credential or release workflow is required.
   overrides, zero deadlines, and attached cancellation are implemented.
 - Implemented: bounded JSON/EJSON exports, query options, new-file creation and
   explicit truncation metadata.
-- Planned: installed-artifact integration tests, Windows checks, and a local
-  testing guide with commands that have been run against synthetic fixtures.
+- Native Windows CI has passed full verification, isolated package installation,
+  synthetic process/file lifecycle checks, and OS credential persistence/cleanup.
+  Every updated PR head still needs passing required checks before merge.
+  POSIX-only checks remain on Linux; native Windows MongoDB and interactive
+  terminal behavior remain separate integration work.
+- Planned: installed-artifact MongoDB integration tests, native Windows database
+  and interactive-terminal testing, and a local guide with verified commands.
 
 The agreed semantics remain in [DESIGN.md](DESIGN.md). Routine implementation
 defaults may be chosen during these slices and documented when they become real.

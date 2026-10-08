@@ -12,7 +12,7 @@ export type SecretError = {
 };
 export interface CredentialEntry {
   setPassword(value: string, signal?: AbortSignal): Promise<void>;
-  getPassword(signal?: AbortSignal): Promise<string | undefined>;
+  getPassword(signal?: AbortSignal): Promise<string | null | undefined>;
   deleteCredential(signal?: AbortSignal): Promise<boolean>;
 }
 export type CredentialEntryFactory = (identifier: string) => Promise<CredentialEntry>;
@@ -99,7 +99,8 @@ export function credentialStore(entryFactory: CredentialEntryFactory = nativeEnt
           try: (signal) => credential.getPassword(signal),
           catch: unavailable,
         });
-        if (value === undefined)
+        // The native async binding can return null despite declaring undefined in its types.
+        if (value === undefined || value === null)
           return yield* Effect.fail({
             code: "SecretNotFound" as const,
             message: "The configured connection credential is missing. Run setup again.",

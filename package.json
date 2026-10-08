@@ -28,7 +28,8 @@
     "test": "npm run test --workspaces --if-present",
     "pack:check": "npm run build && node scripts/pack-check.mjs",
     "verify": "npm run release-policy && npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:policy && npm run test && npm run pack:check",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:native-credentials": "npm run build && node scripts/check-native-credentials.mjs"
   },
   "lint-staged": {
     "*.{js,mjs,cjs,ts,json,jsonc}": "biome check --write --no-errors-on-unmatched"

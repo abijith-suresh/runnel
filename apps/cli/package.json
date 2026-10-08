@@ -36,7 +36,7 @@
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --project tsconfig.typecheck.json && tsc --project tsconfig.test.json",
-    "test": "npm run build && node --test test/*.test.mts",
+    "test": "npm run build && node --test --test-concurrency=1 test/*.test.mts",
     "prepack": "npm run build"
   },
   "dependencies": {

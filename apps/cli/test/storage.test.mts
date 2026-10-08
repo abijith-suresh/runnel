@@ -3,8 +3,8 @@ import { spawn } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   utimesSync,
@@ -17,8 +17,8 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Result from "effect/Result";
 import { lock } from "proper-lockfile";
-import { updateCatalog } from "../dist/catalog-write.js";
 import { emptyCatalog, readCatalog } from "../dist/catalog.js";
+import { updateCatalog } from "../dist/catalog-write.js";
 import { type CredentialEntryFactory, credentialStore } from "../dist/secrets.js";
 
 test("catalog updates persist validated mappings, tighten new file permissions, and leave no temporary files", async (t) => {
@@ -320,6 +320,21 @@ test("credential operations validate references and values before accessing the 
     assert.equal(result.failure.code, "SecretInvalid");
   }
   assert.equal(touched, false);
+});
+
+test("missing native passwords reported as null or undefined become SecretNotFound", async () => {
+  for (const missing of [null, undefined]) {
+    const store = credentialStore(async () => ({
+      setPassword: async () => undefined,
+      getPassword: async () => missing,
+      deleteCredential: async () => false,
+    }));
+    const result = await Effect.runPromise(
+      store.read("keyring:runnel/missing").pipe(Effect.result)
+    );
+    assert(Result.isFailure(result));
+    assert.equal(result.failure.code, "SecretNotFound");
+  }
 });
 
 test("native credential failures omit underlying secret-bearing diagnostics and clean partial writes", async () => {

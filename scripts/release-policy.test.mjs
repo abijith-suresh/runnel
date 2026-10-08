@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -162,23 +163,40 @@ test("a manual patch bump without consumed Changesets is rejected", (t) => {
 
 test("the guarded Changesets command produces a valid aligned version PR", (t) => {
   const f = fixture(t, true);
+  const callerPaths = [
+    "package-lock.json",
+    "node_modules/.package-lock.json",
+    ...packages.map((pkg) => `${pkg.directory}/package.json`),
+  ];
+  const snapshot = () =>
+    callerPaths.map((path) =>
+      createHash("sha256")
+        .update(readFileSync(resolve(path)))
+        .digest("hex")
+    );
+  const before = snapshot();
+  t.after(() => assert.deepEqual(snapshot(), before, "Versioning must leave the caller untouched"));
   for (const path of [
     "scripts/git-environment.mjs",
     "scripts/release-policy.mjs",
     "scripts/version-packages.mjs",
+    "scripts/npm-command.mjs",
   ]) {
     f.write(path, readFileSync(resolve(path), "utf8"));
   }
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  execFileSync(npm, ["ci", "--ignore-scripts", "--offline", "--no-audit", "--no-fund"], {
-    cwd: f.root,
-    env: gitEnvironment(),
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 60000,
-  });
+  // Keep the fixture's hidden lockfile private; npm writes it even in lock-only mode.
+  // Link only the executable shims and Changesets packages, using Windows junctions.
+  mkdirSync(join(f.root, "node_modules"));
+  for (const path of [".bin", "@changesets"])
+    symlinkSync(resolve("node_modules", path), join(f.root, "node_modules", path), "junction");
   execFileSync(process.execPath, ["scripts/version-packages.mjs"], {
     cwd: f.root,
-    env: gitEnvironment(),
+    env: {
+      ...gitEnvironment(),
+      npm_config_offline: "true",
+      npm_config_audit: "false",
+      npm_config_fund: "false",
+    },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 60000,
