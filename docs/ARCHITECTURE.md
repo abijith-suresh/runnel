@@ -174,7 +174,8 @@ checks also load the native binding without constructing an entry.
 
 These helpers are internal to the CLI and now support human `setup`.
 Native Linux round-trip checks use a temporary catalog and synthetic secrets.
-Native Windows checks are still planned.
+Native Windows CI verifies synthetic credential persistence across processes and cleanup.
+Interactive Windows setup and native Windows MongoDB access remain unvalidated.
 
 ## Persistent worker and MongoDB pools
 
@@ -223,9 +224,9 @@ stacks, URIs, and document-bearing diagnostics never cross IPC.
 
 Human `setup` invokes connection inspection through the daemon. CLI `list` now invokes
 the collection-listing operation. History is recorded by the daemon. Scripts also
-execute internally in the worker; CLI invocation remains planned.
-The worker IPC format is internal. Native Windows process behavior has not been
-validated on Windows.
+execute in the worker through attached CLI `run` invocations.
+The worker IPC format is internal. Native Windows CI covers synthetic worker
+startup, reuse, reset, and shutdown; MongoDB integration remains separate.
 
 ## Local daemon and CLI transport
 
@@ -249,8 +250,8 @@ The transport uses Unix domain sockets on POSIX and a random named pipe on Windo
 following [Node's IPC support](https://github.com/nodejs/node/blob/v24.x/doc/api/net.md#ipc-support).
 Long POSIX configuration paths use a short private directory under the system
 temporary directory, keyed by user ID and runtime path. Socket paths stay below
-100 bytes. Windows metadata uses inherited filesystem ACLs; native Windows
-access and lifecycle behavior still need validation.
+100 bytes. Windows metadata uses inherited filesystem ACLs. Native Windows CI
+covers named-pipe and process lifecycle; workstation ACL review remains separate.
 
 Each connection carries one authenticated, newline-terminated JSON request and
 one result, bounded to 1 MiB. At most 64 connections are retained. Incomplete
@@ -297,7 +298,8 @@ remove the new secret. Prompting and discovery run outside this commit sequence.
 Credential rotation, editing registrations, and migration remain future work.
 A daemon started for inspection may remain until idle shutdown even if setup is
 cancelled. Native Linux terminal/keyring/MongoDB checks use isolated synthetic
-fixtures; native Windows terminal and credential behavior remain unvalidated.
+fixtures. Native Windows CI checks synthetic credential persistence and cleanup;
+interactive Windows terminal behavior remains unvalidated.
 
 
 ## MongoDB query commands
@@ -388,8 +390,9 @@ adds an optional `HistoryUnavailable` warning, and the CLI emits a fixed diagnos
 to stderr. Corrupt or unsupported history is preserved rather than overwritten.
 This history is best effort and is not an audit log: hard process termination or
 machine failure may lose an entry, and an error records the application outcome,
-not proof that a writing pipeline had no side effects. Native Windows filesystem
-permissions and history behavior have not been validated.
+not proof that a writing pipeline had no side effects. Native Windows CI covers
+synthetic history behavior. Windows inherits filesystem ACLs; POSIX permission
+checks remain on Linux.
 
 
 ## JavaScript runner and CLI
@@ -451,7 +454,8 @@ their work, pass the signal to operations that support it, and clean up their ow
 resources. A completed invocation disables later `connect` calls but cannot
 revoke a native handle retained by arbitrary JavaScript. Scripts run with the
 worker user's OS and database permissions. No driver proxy or script sandbox is
-introduced. Native Windows script execution remains unvalidated.
+introduced. Native Windows CI covers script loading, snapshots, deadlines, and
+lifecycle with synthetic handles. Native Windows MongoDB scripts remain unvalidated.
 
 Execution responses have no transport inactivity timer, allowing queued work and
 extended or disabled deadlines to remain attached. Connect and lifecycle requests
@@ -484,7 +488,8 @@ creates a hard link at the destination. Concurrent destination creation fails
 without overwrite. Cleanup removes temporary files on ordinary errors. Abrupt
 termination can leave temporary files; there is no crash-recovery scanner.
 Filesystems without hard-link support report a structured save error. Native
-Windows file permissions and lifecycle remain unvalidated.
+Windows CI covers export file lifecycle with synthetic worker results. Windows
+inherits filesystem ACLs; native Windows MongoDB exports remain unvalidated.
 
 ## Platform verification
 
@@ -499,6 +504,11 @@ a temporary repository and run the real guarded version command offline. The
 fixture owns its dependency directory and hidden lockfile. Tests check that caller
 manifests and lockfiles remain unchanged. Normal CI installation and isolated
 tarball installation checks cover dependency installs.
+
+CLI test files run one at a time to limit competing subprocess load on lock and
+deadline fixtures. Tests for concurrent writers still launch writers together.
+History tests verify that successful appends survive together and that exhausted
+lock retries return the structured history error.
 
 The required `Baseline verified` job includes a native Windows job alongside
 Linux verification. Windows runs `npm run verify`, including strict types,
