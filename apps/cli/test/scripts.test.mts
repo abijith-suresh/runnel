@@ -414,3 +414,39 @@ test("an uncooperative real script and its queue are terminated once; startup im
     await f.cleanup();
   }
 });
+
+test("finite CPU work and slow result encoding cannot succeed after the deadline before timers run", async () => {
+  const f = await fixture(
+    "export default async()=>{const end=performance.now()+150;while(performance.now()<end){}return true;};"
+  );
+  const worker = createWorkerSupervisor(f.directory, {
+    entrypoint: new URL("./fixtures/script-worker.mjs", import.meta.url),
+  });
+  try {
+    assert.equal(
+      code(await f.operations.execute({ ...f.request, timeoutMs: 100 })),
+      "ScriptTimedOut"
+    );
+    assert.equal(code(await worker.execute({ ...f.request, timeoutMs: 100 })), "ScriptTimedOut");
+    const path = join(f.directory, "slow-result.mjs");
+    await writeFile(
+      path,
+      "export default async()=>({get value(){const end=performance.now()+150;while(performance.now()<end){}return true;}});"
+    );
+    assert.equal(
+      code(await f.operations.execute({ ...f.request, path, timeoutMs: 100 })),
+      "ScriptTimedOut"
+    );
+    const failure = join(f.directory, "late-error.mjs");
+    await writeFile(
+      failure,
+      "export default async()=>{const end=performance.now()+150;while(performance.now()<end){}throw new Error('private late failure');};"
+    );
+    const result = await f.operations.execute({ ...f.request, path: failure, timeoutMs: 100 });
+    assert.equal(code(result), "ScriptTimedOut");
+    assert(!JSON.stringify(result).includes("private late failure"));
+  } finally {
+    await worker.stop();
+    await f.cleanup();
+  }
+});

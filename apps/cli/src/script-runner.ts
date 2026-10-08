@@ -133,6 +133,7 @@ export function createScriptRunner() {
       const controller = new AbortController();
       controllers.add(controller);
       let ended = false;
+      const deadline = request.timeoutMs === 0 ? undefined : performance.now() + request.timeoutMs;
       const timer =
         request.timeoutMs === 0
           ? undefined
@@ -141,6 +142,9 @@ export function createScriptRunner() {
               request.timeoutMs
             );
       const checkActive = () => {
+        // Finite CPU work can finish before a delayed timer callback runs.
+        if (deadline !== undefined && performance.now() >= deadline && !controller.signal.aborted)
+          controller.abort(new Error("Script deadline expired."));
         if (ended)
           throw new QueryError("ScriptScopeEnded", "The script operation has already ended.");
         if (controller.signal.aborted)
@@ -153,6 +157,7 @@ export function createScriptRunner() {
         const selected = await resolve();
         checkActive();
         const entry = await source(request.path);
+        checkActive();
         if (loaded.has(entry.path) && loaded.get(entry.path) !== entry.hash)
           throw new QueryError(
             "ScriptChanged",
@@ -208,6 +213,7 @@ export function createScriptRunner() {
             "ResultTooLarge",
             "The script result exceeds the 512 KiB result budget. Return a bounded result."
           );
+        checkActive();
         return {
           ok: true,
           data: {
@@ -219,7 +225,7 @@ export function createScriptRunner() {
           },
         };
       } catch (error) {
-        if (controller.signal.aborted) checkActive();
+        checkActive();
         throw error;
       } finally {
         ended = true;

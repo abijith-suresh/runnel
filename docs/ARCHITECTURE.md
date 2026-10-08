@@ -120,7 +120,7 @@ characters on either platform and use at most 63 UTF-8 bytes, following
 [MongoDB's naming limits](https://www.mongodb.com/docs/manual/reference/limits/#naming-restrictions).
 Settings are nonnegative integer milliseconds bounded by Node's timer range.
 The daemon reads `idleTimeoutMs` at startup; zero disables idle shutdown.
-`scriptTimeoutMs` remains reserved for the planned script runner.
+`scriptTimeoutMs` remains reserved for the planned CLI script deadline default.
 
 `envs`, `connections -e <name>`, and `databases -e <name>` return sorted configured
 names or mappings in JSON envelopes. Success is `{ "ok": true, "data": ... }`;
@@ -206,7 +206,7 @@ minimum pool size zero, and 10-second connection/server-selection timeouts.
 Changing the stored URI closes and replaces its client. Failed closes remain
 tracked for a later replacement or shutdown attempt. Shutdown rejects new
 acquisition and removes clients only after successful close. Pool creation, replacement,
-and shutdown serialize even if future scripts connect in parallel. Only acquisition
+and shutdown serialize even when scripts connect in parallel. Only acquisition
 serializes; operations on acquired native handles can run in parallel.
 
 The initial internal operations remain available. `inspect` lists databases accessible to
