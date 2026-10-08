@@ -227,7 +227,14 @@ function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
         }
         if (item instanceof BSON.ObjectId) {
           for (const descriptor of Object.values(descriptors)) snapshot(descriptor.value);
-          return new BSON.ObjectId(BSON.ObjectId.prototype.toHexString.call(item));
+          const bytes = Buffer.alloc(12);
+          for (const [index, key] of ["i0", "i1", "i2", "i3"].entries()) {
+            const word = data(key);
+            if (typeof word !== "number" || !Number.isInteger(word) || word < 0 || word > 0xffffff)
+              throw new Error("Invalid ObjectId");
+            bytes.writeUIntBE(word, index * 3, 3);
+          }
+          return new BSON.ObjectId(bytes);
         }
         if (item instanceof BSON.MinKey) return new BSON.MinKey();
         if (item instanceof BSON.MaxKey) return new BSON.MaxKey();
@@ -238,8 +245,17 @@ function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
         if (!Number.isFinite(millis)) throw new Error("Invalid date");
         return new Date(millis);
       }
-      if (prototype === RegExp.prototype)
-        return new RegExp((item as RegExp).source, (item as RegExp).flags);
+      if (prototype === RegExp.prototype) {
+        if (Reflect.ownKeys(descriptors).some((key) => key !== "lastIndex"))
+          throw new Error("Modified regular expression");
+        const pattern = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get?.call(
+          item
+        );
+        const flags = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get?.call(item);
+        if (typeof pattern !== "string" || typeof flags !== "string")
+          throw new Error("Invalid regular expression");
+        return new RegExp(pattern, flags);
+      }
       if (Buffer.isBuffer(item)) return Buffer.from(item);
       if (Array.isArray(item))
         return Array.from({ length: data("length") as number }, (_, index) =>

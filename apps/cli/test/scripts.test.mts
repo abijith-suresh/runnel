@@ -746,3 +746,52 @@ test("large JavaScript numeric results retain their IEEE754 values instead of be
     await f.cleanup();
   }
 });
+
+test("ObjectId snapshots validate captured bytes and native RegExp overrides cannot invoke coercion", async () => {
+  const f = await fixture("export default async()=>true;");
+  const worker = createWorkerSupervisor(f.directory, {
+    entrypoint: new URL("./fixtures/script-worker.mjs", import.meta.url),
+  });
+  try {
+    for (const [index, body] of [
+      ...["i0=1.5", "i1=-1", "i2=16777216", "i3=NaN", "i0='16777215'", "i0=Infinity"].map(
+        (assignment) =>
+          `export default async({bson})=>{const value=new bson.ObjectId('000000000000000000000001');value.${assignment};return value;};`
+      ),
+      ...["source", "flags"].map(
+        (key) =>
+          `export default async()=>{const value=/x/;Object.defineProperty(value,'${key}',{value:new class {toString(){return '${key === "source" ? "class-data" : "i"}';}}});return value;};`
+      ),
+    ].entries()) {
+      const path = join(f.directory, `invalid-native-${index}.mjs`);
+      await writeFile(path, body);
+      for (const format of ["json", "ejson"] as const)
+        for (const execute of [
+          (request: ScriptOperation) => f.operations.execute(request),
+          (request: ScriptOperation) => worker.execute(request),
+        ]) {
+          const result = await execute({ ...f.request, path, format });
+          assert.equal(code(result), "ResultEncodingFailed");
+          assert(!JSON.stringify(result).includes("class-data"));
+        }
+    }
+    const valid = join(f.directory, "native-snapshot.mjs");
+    await writeFile(
+      valid,
+      "export default async({bson})=>({oid:new Proxy(new bson.ObjectId('000000000000000000000001'),{get(t,k,r){return k==='i0'?0xffffff:Reflect.get(t,k,r);}}),edge:new bson.ObjectId('ffffffffffffffffffffffff'),regex:/^a/im});"
+    );
+    for (const format of ["json", "ejson"] as const)
+      for (const execute of [
+        (request: ScriptOperation) => f.operations.execute(request),
+        (request: ScriptOperation) => worker.execute(request),
+      ])
+        assert.deepEqual(value(await execute({ ...f.request, path: valid, format })), {
+          oid: { $oid: "000000000000000000000001" },
+          edge: { $oid: "ffffffffffffffffffffffff" },
+          regex: { $regularExpression: { pattern: "^a", options: "im" } },
+        });
+  } finally {
+    await worker.stop();
+    await f.cleanup();
+  }
+});
