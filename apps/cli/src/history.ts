@@ -118,7 +118,8 @@ async function readEntries(path: string): Promise<HistoryEntry[]> {
     const info = await file.stat();
     if (
       !info.isFile() ||
-      info.nlink !== 1 ||
+      // Atomic replacement may unlink an already-open reader's inode; its snapshot remains valid.
+      info.nlink > 1 ||
       info.size > historyMaximumBytes ||
       (process.getuid && (info.uid !== process.getuid() || (info.mode & 0o077) !== 0))
     )

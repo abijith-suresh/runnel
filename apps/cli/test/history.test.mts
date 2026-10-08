@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
 import {
   chmod,
   link,
@@ -12,6 +13,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -464,4 +466,40 @@ test("a busy history lock preserves all operation results and stop acknowledgeme
       await release();
     }
   }
+});
+
+test("an atomic replacement after open preserves the reader's valid snapshot", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { home, path } = await fixture(t);
+  await appendHistory(home, entry(5));
+  const replacement = join(home, "replacement.json");
+  await writeFile(replacement, JSON.stringify({ schemaVersion: 1, entries: [entry(99)] }), {
+    mode: 0o600,
+  });
+  const originalOpen = fs.promises.open;
+  let replaced = false;
+  fs.promises.open = async (...args: Parameters<typeof originalOpen>) => {
+    const file = await originalOpen(...args);
+    if (args[0] === path) {
+      try {
+        await fs.promises.rename(replacement, path);
+        assert.equal((await file.stat()).nlink, 0);
+        replaced = true;
+      } catch (error) {
+        await file.close();
+        throw error;
+      }
+    }
+    return file;
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(await readHistory(home), [entry(5)]);
+    assert(replaced, "replacement was not interleaved between open and stat");
+  } finally {
+    fs.promises.open = originalOpen;
+    syncBuiltinESMExports();
+  }
+  assert.deepEqual(await readHistory(home), [entry(99)]);
 });
