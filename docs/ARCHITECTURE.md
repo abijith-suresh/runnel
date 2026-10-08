@@ -60,6 +60,14 @@ without DB access. It needs no MongoDB server or credential service. Separate
 integration probes use synthetic data in a local Podman MongoDB instance. No package is
 published by a development command or CI workflow.
 
+`npm run check:mongodb` extends the isolated tarball check with a real MongoDB
+smoke check. Runtime imports and command execution come from the installed
+consumer. It uses UUID-named databases on a supplied loopback port, an isolated
+catalog, and native OS credentials. It stops its daemon and removes its synthetic
+databases, secrets, and files on ordinary success or failure. It does not run in
+`verify` or CI, and it does not use the user's configured targets. See
+[local testing](LOCAL_TESTING.md) for its coverage and limitations.
+
 ## Database target selection
 
 `resolveDatabaseTarget` takes a read-only map of environment names to sets of

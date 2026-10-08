@@ -67,3 +67,9 @@ JSON inline/file/stdin arguments and deadline options, and cancels without repla
 CLI `export` saves bounded JSON/EJSON arrays to new files without replacing existing destinations.
 MCP remains planned. Keep this status and the owning documents
 accurate as each slice lands.
+
+`npm run check:mongodb` optionally tests installed tarballs against a loopback
+test MongoDB server with synthetic databases, an isolated catalog, and native
+credential storage. It cleans up its own fixtures and is excluded from `verify`.
+See `docs/LOCAL_TESTING.md`; interactive setup and native Windows database use
+remain separate checks.
