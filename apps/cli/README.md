@@ -47,7 +47,7 @@ commands never start a missing daemon. The daemon shuts down after five minutes
 of inactivity by default; active and queued work prevent shutdown. Stop the old
 daemon after installing another Runnel version before running database work.
 
-Scripts and exports remain planned. The library entry point still exports an empty
+CLI scripts and exports remain planned. An internal worker runner is implemented. The library entry point still exports an empty
 module; there is no public CLI composition API.
 
 For local development, build at the repository root and invoke the compiled CLI.
@@ -149,7 +149,7 @@ Aggregation pipelines run unchanged under the database user's permissions,
 including stages that write data. `--limit` bounds returned documents and does
 not bound pipeline side effects. Runnel adds no separate read/write approval gate.
 Errors are structured and exit nonzero without dumping query values or driver
-messages. Scripts and exports remain planned.
+messages. CLI scripts and exports remain planned. An internal worker runner is implemented.
 
 ## Local operation history
 

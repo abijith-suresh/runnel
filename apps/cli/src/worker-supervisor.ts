@@ -195,7 +195,7 @@ export function createWorkerSupervisor(directory: string, options: Options = {})
     return changing;
   };
   return {
-    execute(input: unknown, timeoutMs = 15000): Promise<WorkerResult> {
+    execute(input: unknown, timeoutMs?: number): Promise<WorkerResult> {
       if (stopped)
         return Promise.resolve(
           failure("WorkerStopped", "The database worker supervisor is stopped.")
@@ -213,6 +213,12 @@ export function createWorkerSupervisor(directory: string, options: Options = {})
         // Snapshot supplied objects so queued requests cannot change after validation.
         request = decodeOperation(input);
         request = decodeOperation(JSON.parse(JSON.stringify(request)) as unknown);
+        timeoutMs ??=
+          request.operation === "run"
+            ? request.timeoutMs === 0
+              ? 0
+              : request.timeoutMs + 100
+            : 15000;
         if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 2147483647)
           throw new Error("Invalid deadline");
       } catch {

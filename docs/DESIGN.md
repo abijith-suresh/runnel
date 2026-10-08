@@ -9,7 +9,8 @@ connection inspection, and collection listing are also implemented. CLI `list`
 now starts a daemon, and daemon lifecycle commands are available. Human `setup`
 registers new connections and named aliases. `describe`, `find`, `count`, and
 `aggregate` are implemented with bounded JSON/EJSON output. History is on by default.
-Scripts, exports, and the remaining product behavior below remain
+The internal JavaScript runner is implemented. CLI script invocation, exports,
+and the remaining product behavior below remain
 **planned**. The document preserves
 the decisions from the initial discussion so later tasks can build from them
 without reconstructing it.
@@ -72,7 +73,7 @@ The prior research thread was `mcp:4498efc8-20cb-44e4-9be9-b42471eff35a`, titled
 this single persistent worker architecture, local native driver handles, and
 explicit resets. The internal worker now follows that ownership and queueing
 model. Daemon startup, idle shutdown, and user-facing reset/stop/status are now
-implemented. Script execution remains planned.
+implemented. Internal script execution is implemented; CLI invocation remains planned.
 
 ## Scripts
 
@@ -86,11 +87,12 @@ a default async function receiving `{ db, args, connect, signal, bson }`.
 - `bson` supplies `ObjectId` and related BSON utilities. The script directory
   does not need its own MongoDB driver installation.
 
-This is a contract sketch, not implemented code:
+The internal worker now supplies this context. CLI invocation and its input
+options remain planned:
 
 ```js
 export default async function ({ db, args, connect, signal, bson }) {
-  // Future user-authored JavaScript runs here, in the worker with real driver handles.
+  // User-authored JavaScript runs in the worker with real driver handles.
 }
 ```
 
@@ -103,8 +105,11 @@ disables the deadline. This is independent of the daemon's idle timeout.
 
 Runner restarts are acceptable when needed. Prior research suggests resetting
 when an already-used entry script changes. Changes only in imported dependencies
-may require an explicit daemon reset. The exact reset, change detection, and
-module loading mechanisms remain implementation decisions to review later.
+may require an explicit daemon reset. The internal runner hashes entry files and
+rejects a changed, previously loaded entry with `ScriptChanged` until the worker is reset. It uses native Node ESM
+imports and preserves their module cache. Imported dependency-only edits require
+an explicit reset. The user-facing command and automatic restart behavior remain
+implementation work.
 
 ## Output, export, and local history
 
