@@ -13,7 +13,7 @@ const requestSchema = Schema.Union([
 ]);
 export type WorkerOperation = typeof requestSchema.Type;
 const errorSchema = Schema.Struct({ code: text, message: text });
-const resultSchema = Schema.Union([
+export const resultSchema = Schema.Union([
   Schema.Struct({
     ok: Schema.Literal(true),
     data: Schema.Union([

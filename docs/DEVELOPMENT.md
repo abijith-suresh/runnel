@@ -21,13 +21,11 @@ repository credential or release workflow is required.
 - Implemented: core target selection, CLI help/version, catalog validation and offline discovery,
   internal serialized catalog updates, native OS secret storage helpers, and a
   persistent worker supervisor with warm MongoDB pools, connection inspection,
-  and collection listing. Worker operations are not exposed as CLI commands yet.
+  and collection listing. CLI `list` starts a user-wide daemon; lifecycle commands
+  provide status/reset/stop, and idle shutdown waits for active and queued work.
 - Planned: hidden human setup,
   accessible database discovery, and manual alias registration.
-- Planned: daemon startup and client transport, user-facing reset/stop/status,
-  and idle shutdown. The internal worker already queues operations and supports
-  reset/stop/status with no automatic replay.
-- Planned: list, describe, find, count, aggregate, bounded JSON/EJSON results,
+- Planned: describe, find, count, aggregate, bounded JSON/EJSON results,
   structured errors, and sanitized local operation history.
 - Planned: attached JavaScript scripts with native `db`, cross-environment
   `connect`, `args`, `signal`, and `bson`, deadlines, reset behavior, and exports.

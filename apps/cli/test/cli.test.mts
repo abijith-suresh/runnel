@@ -21,7 +21,9 @@ test("help and no arguments print available options on stdout", () => {
     assert.match(result.stdout, /runnel \[--help \| --version\]/);
     assert.match(result.stdout, /-h, --help/);
     assert.match(result.stdout, /-v, --version/);
-    assert.match(result.stdout, /Database commands are planned and are not implemented/);
+    assert.match(result.stdout, /runnel list -e/);
+    assert.match(result.stdout, /runnel daemon status/);
+    assert.match(result.stdout, /Other database commands, setup, scripts, and history are planned/);
   }
 });
 
@@ -55,6 +57,11 @@ test("unsupported commands, options, and malformed flags fail without stdout", (
     ["--help", "--unknown"],
     ["--version", "extra"],
     ["--help=true"],
+    ["daemon"],
+    ["daemon", "pause"],
+    ["daemon", "status", "-e", "local"],
+    ["envs", "-d", "accounts"],
+    ["list", "users", "-e", "local"],
   ]) {
     const result = run(args);
     assert.equal(result.status, 1);

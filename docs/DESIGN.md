@@ -5,8 +5,10 @@ environment and database alias selection, described in
 [the current architecture](ARCHITECTURE.md#database-target-selection). The CLI also
 implements help/version flags, offline catalog discovery, and internal catalog
 and credential storage helpers. Internal worker supervision, MongoDB pools,
-connection inspection, and collection listing are also implemented. User-facing
-database commands and other product behavior below remain **planned**. The document preserves
+connection inspection, and collection listing are also implemented. CLI `list`
+now starts a daemon, and daemon lifecycle commands are available. Other database
+commands, history, scripts, and the remaining product behavior below remain
+**planned**. The document preserves
 the decisions from the initial discussion so later tasks can build from them
 without reconstructing it.
 
@@ -66,8 +68,8 @@ The prior research thread was `mcp:4498efc8-20cb-44e4-9be9-b42471eff35a`, titled
 "Runnel: research JavaScript script execution". Its recommendation supports
 this single persistent worker architecture, local native driver handles, and
 explicit resets. The internal worker now follows that ownership and queueing
-model. Daemon startup, idle shutdown, script execution, and user-facing reset
-commands remain planned.
+model. Daemon startup, idle shutdown, and user-facing reset/stop/status are now
+implemented. Script execution remains planned.
 
 ## Scripts
 
@@ -120,8 +122,8 @@ remain implementation defaults or decisions. No finalized values are claimed her
 
 ## Planned command examples
 
-`envs`, `connections`, and `databases` now run offline. The other commands below
-remain planned:
+`envs`, `connections`, and `databases` run offline. `list` and the three daemon
+lifecycle commands also run now. Setup and the other commands below remain planned:
 
 ```sh
 runnel setup

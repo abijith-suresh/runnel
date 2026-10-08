@@ -119,7 +119,7 @@ try {
   });
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stderr, "");
-  assert.match(cli.stdout, /Database commands are planned and are not implemented/);
+  assert.match(cli.stdout, /Other database commands, setup, scripts, and history are planned/);
   const discovery = spawnSync(process.execPath, [executable, "envs"], {
     cwd: consumer,
     env: { ...process.env, RUNNEL_HOME: join(temporary, "empty-catalog") },
@@ -145,8 +145,39 @@ try {
   assert.equal(unsupported.status, 1);
   assert.equal(unsupported.stdout, "");
   assert.match(unsupported.stderr, /Unsupported arguments/);
+  const daemonHome = join(temporary, "pack-daemon");
+  const daemonCli = (args) =>
+    spawnSync(process.execPath, [executable, ...args], {
+      cwd: consumer,
+      env: { ...process.env, RUNNEL_HOME: daemonHome },
+      encoding: "utf8",
+      timeout: 30000,
+    });
+  try {
+    const absent = daemonCli(["daemon", "status"]);
+    assert.equal(absent.status, 0, absent.stderr);
+    assert.deepEqual(JSON.parse(absent.stdout), { ok: true, data: { running: false } });
+    const target = daemonCli(["list", "-e", "unknown"]);
+    assert.equal(target.status, 1, target.stderr);
+    assert.equal(JSON.parse(target.stdout).error.code, "EnvironmentNotFound");
+    const status = daemonCli(["daemon", "status"]);
+    assert.equal(status.status, 0, status.stderr);
+    const running = JSON.parse(status.stdout);
+    assert.equal(running.data.running, true);
+    assert.equal(
+      running.data.version,
+      manifests.find((pkg) => pkg.name === "@abijith-suresh/runnel").version
+    );
+    assert(running.data.worker.pid);
+    const reset = daemonCli(["daemon", "reset"]);
+    assert.equal(reset.status, 0, reset.stderr);
+    assert.deepEqual(JSON.parse(reset.stdout), { ok: true, data: { reset: true } });
+  } finally {
+    const stop = daemonCli(["daemon", "stop"]);
+    assert.equal(stop.status, 0, stop.stderr);
+  }
   process.stdout.write(
-    "All three npm pack dry runs, isolated tarball installs, imports, CLI entry point, and worker lifecycle passed\n"
+    "All three npm pack dry runs, isolated tarball installs, imports, CLI entry point, worker lifecycle, and daemon lifecycle passed\n"
   );
 } finally {
   rmSync(temporary, { recursive: true, force: true });
