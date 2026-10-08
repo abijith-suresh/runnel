@@ -2,10 +2,14 @@ import { resolveDatabaseTarget } from "@abijith-suresh/runnel-core";
 import { createMongoPool, type MongoPool } from "@abijith-suresh/runnel-mongodb";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
+import { BSON } from "mongodb";
 import { readCatalog } from "./catalog.js";
+import { executeQuery, prepareQuery } from "./mongodb-query.js";
+import { QueryError } from "./query-input.js";
 import { credentialStore } from "./secrets.js";
 import {
   bounded,
+  decodeOperation,
   failure,
   nameLimit,
   type WorkerOperation,
@@ -22,8 +26,23 @@ const targetMessages = {
 
 /** Never include driver messages, URIs, documents or stacks in application errors. */
 export function databaseFailure(error: unknown): WorkerResult {
-  const code =
+  if (error instanceof QueryError) return failure(error.code, error.message);
+  const rawCode =
     typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+  // promoteValues:false preserves query BSON values, including numeric server error fields.
+  const code =
+    rawCode instanceof BSON.Int32 || rawCode instanceof BSON.Double
+      ? rawCode.value
+      : rawCode instanceof BSON.Long
+        ? rawCode.toNumber()
+        : rawCode;
+  if (code === 26) return failure("CollectionNotFound", "The named collection does not exist.");
+  if (code === 50) return failure("DatabaseTimedOut", "MongoDB exceeded its operation deadline.");
+  if ([2, 9, 14, 72].includes(code as number))
+    return failure(
+      "QueryInvalid",
+      "MongoDB rejected the query or pipeline. Check its operators and values."
+    );
   if (code === 13)
     return failure(
       "PermissionDenied",
@@ -35,6 +54,8 @@ export function databaseFailure(error: unknown): WorkerResult {
       "MongoDB rejected the configured credentials. Run setup again."
     );
   const name = error instanceof Error ? error.name : "";
+  if (name === "MongoInvalidArgumentError")
+    return failure("QueryInvalid", "The query arguments are invalid.");
   if (name === "MongoParseError")
     return failure(
       "ConnectionInvalid",
@@ -60,8 +81,18 @@ export function workerOperations(
   secrets = credentialStore()
 ) {
   return {
-    async execute(request: WorkerOperation): Promise<WorkerResult> {
+    async execute(input: WorkerOperation): Promise<WorkerResult> {
       try {
+        let decoded: WorkerOperation;
+        try {
+          decoded = decodeOperation(input);
+        } catch {
+          return failure(
+            "RequestInvalid",
+            "The operation request is invalid or exceeds the IPC size limit."
+          );
+        }
+        const request = decoded;
         if (request.operation === "inspect") {
           // Human setup discovery uses an isolated client and retains no unregistered URI.
           const temporary = createMongoPool();
@@ -80,6 +111,7 @@ export function workerOperations(
             await temporary.close();
           }
         }
+        const prepared = request.operation === "list" ? undefined : prepareQuery(request);
         const resolved = await Effect.runPromise(
           Effect.gen(function* () {
             const catalog = yield* readCatalog(directory);
@@ -118,6 +150,8 @@ export function workerOperations(
           uri,
           alias.database
         );
+        if (request.operation !== "list")
+          return boundedResult(await executeQuery(handle, request, env, db, prepared ?? {}));
         const cursor = handle.listCollections(
           {},
           { nameOnly: true, authorizedCollections: true, timeoutMS: 10000 }

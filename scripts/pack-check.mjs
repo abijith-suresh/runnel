@@ -119,7 +119,7 @@ try {
   });
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stderr, "");
-  assert.match(cli.stdout, /Other database commands, scripts, and history are planned/);
+  assert.match(cli.stdout, /Scripts, exports, and history are planned/);
   const discovery = spawnSync(process.execPath, [executable, "envs"], {
     cwd: consumer,
     env: { ...process.env, RUNNEL_HOME: join(temporary, "empty-catalog") },
@@ -160,6 +160,16 @@ try {
     const target = daemonCli(["list", "-e", "unknown"]);
     assert.equal(target.status, 1, target.stderr);
     assert.equal(JSON.parse(target.stdout).error.code, "EnvironmentNotFound");
+    for (const args of [
+      ["describe", "users", "-e", "unknown"],
+      ["find", "users", "-e", "unknown", "--filter", "{}"],
+      ["count", "users", "-e", "unknown"],
+      ["aggregate", "users", "-e", "unknown", "--pipeline", "[]"],
+    ]) {
+      const query = daemonCli(args);
+      assert.equal(query.status, 1, query.stderr);
+      assert.equal(JSON.parse(query.stdout).error.code, "EnvironmentNotFound");
+    }
     const status = daemonCli(["daemon", "status"]);
     assert.equal(status.status, 0, status.stderr);
     const running = JSON.parse(status.stdout);

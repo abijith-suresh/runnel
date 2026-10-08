@@ -59,6 +59,7 @@ and resets without replay. The CLI now starts a user-wide local daemon for `list
 and supports `daemon status`, `daemon reset`, and `daemon stop`. Active and queued
 work prevent idle shutdown. Human `setup` now registers new connections and aliases
 with hidden URI input, worker-owned discovery, and OS credential storage. It never
-overwrites configured names. Other database commands, history, and script execution
+overwrites configured names. The worker now executes `describe`, `find`, `count`,
+and `aggregate` with bounded JSON/EJSON results. History, scripts, and exports
 remain planned. Keep this status and
 the owning documents accurate as each slice lands.

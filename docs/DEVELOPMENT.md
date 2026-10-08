@@ -26,8 +26,9 @@ repository credential or release workflow is required.
 - Implemented: hidden human setup, accessible database discovery, and manual alias
   registration for new connections. Existing connections and aliases are preserved.
   Credential rotation and catalog migration remain future work.
-- Planned: describe, find, count, aggregate, bounded JSON/EJSON results,
-  structured errors, and sanitized local operation history.
+- Implemented: describe, find, count, aggregate, bounded JSON/EJSON results, and
+  structured errors. Inputs support inline values, files, and stdin.
+- Planned next: sanitized local operation history.
 - Planned: attached JavaScript scripts with native `db`, cross-environment
   `connect`, `args`, `signal`, and `bson`, deadlines, reset behavior, and exports.
 - Planned: installed-artifact integration tests, Windows checks, and a local

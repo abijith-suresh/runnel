@@ -4,7 +4,7 @@
 `runnel`. Bare npm `runnel` belongs to an existing package. The CLI depends on
 the matching public core and MongoDB packages, plus Effect v4.
 
-The CLI supports information flags, human setup, offline discovery, collection listing, and
+The CLI supports information flags, human setup, offline discovery, collection listing, query commands, and
 daemon lifecycle commands:
 
 ```sh
@@ -15,6 +15,10 @@ runnel envs
 runnel connections -e local
 runnel databases -e local
 runnel list -e local -d accounts
+runnel describe users -e local -d accounts
+runnel find users -e local -d accounts --filter-file filter.json
+runnel count users -e local -d accounts
+runnel aggregate users -e local -d accounts --pipeline-file pipeline.json
 runnel daemon status
 runnel daemon reset
 runnel daemon stop
@@ -43,15 +47,18 @@ commands never start a missing daemon. The daemon shuts down after five minutes
 of inactivity by default; active and queued work prevent shutdown. Stop the old
 daemon after installing another Runnel version before running database work.
 
-History, scripts, and other database commands remain planned. The library entry point still exports an empty
+History, scripts, and exports remain planned. The library entry point still exports an empty
 module; there is no public CLI composition API.
 
-For local development, build at the repository root and invoke the compiled CLI:
+For local development, build at the repository root and invoke the compiled CLI.
+After rebuilding, stop any existing daemon before the next database command so
+its worker and protocol modules reload.
 
 ```sh
 npm run build
 node apps/cli/dist/cli.js --help
 node apps/cli/dist/cli.js --version
+node apps/cli/dist/cli.js daemon stop
 node apps/cli/dist/cli.js envs
 ```
 
@@ -96,3 +103,47 @@ Linux requires an unlocked Secret Service store, such as GNOME Keyring, and a
 session D-Bus connection. Windows uses native credential storage through the same
 binding; native Windows setup has not yet been tested. Discovery can start the
 daemon even if setup is later cancelled; `runnel daemon stop` stops it explicitly.
+
+
+## Querying a named database
+
+All query commands require `-e`, with `-d` inferred only for a sole alias. `find`
+and `count` accept `--filter` or `--filter-file`; omission uses `{}`. Find also
+accepts `--projection` or `--projection-file`, `--sort` or `--sort-file`, and
+`--skip`. Sort objects use 1/-1 directions. Aggregate requires `--pipeline` or
+`--pipeline-file` containing an array of stage objects. Inputs are JSON or MongoDB
+EJSON, limited to 256 KiB each. Use `-` as a filename to read stdin, once per command.
+Inline and file inputs for the same option cannot be combined.
+
+```sh
+runnel find users -e local --filter '{"active":true}' --limit 10
+runnel find users -e local --projection '{"name":1,"_id":0}' --sort '{"name":1}' --skip 10
+runnel count users -e local --filter-file filter.json
+runnel aggregate users -e local --pipeline-file pipeline.json --format json
+```
+
+Find and aggregate default to 100 documents, with `--limit` ranging from 1 to 1,000.
+Their document array also has a 512 KiB budget. The JSON envelope includes the
+selected names, `documents`, `limits`, and `truncated`. Truncated results include
+`truncationReason`, either `documents` or `bytes`. A single oversized document can
+produce an empty truncated result; projection can reduce document size. Cursors
+close after completion, truncation, or failure. These are bounded results, with
+no continuation token or snapshot guarantee.
+
+Describe returns `metadata` and `indexes` under the same byte budget, with at most
+1,000 indexes. Views have no indexes. Count returns an exact safe integer, or an
+EJSON Int64 wrapper for a larger count. Driver work has a 10-second deadline, and
+the supervisor has a 15-second active deadline. Queue waiting is separate.
+
+Output defaults to canonical MongoDB EJSON with `--format ejson`, preserving BSON
+numeric widths and values. `--format json` selects relaxed Extended JSON. ObjectId,
+date, binary, and decimal values still use standard wrappers. Int64 values outside
+JavaScript's safe integer range require EJSON mode; relaxed output fails instead
+of rounding them. Use input EJSON wrappers such as `{"$numberLong":"9007199254740993"}`
+for large integers. Ordinary integral JSON numbers must be safe and finite.
+
+Aggregation pipelines run unchanged under the database user's permissions,
+including stages that write data. `--limit` bounds returned documents and does
+not bound pipeline side effects. Runnel adds no separate read/write approval gate.
+Errors are structured and exit nonzero without dumping query values or driver
+messages. History, scripts, and exports remain planned.
