@@ -5,14 +5,21 @@ import { isAbsolute, join } from "node:path";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-const name = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,64}$/));
+const namePattern = /^[A-Za-z0-9_-]{1,64}$/;
+const databasePattern = /^[^\s/\\."$*<>:|?\0]{1,63}$/;
+export const isCatalogName = (value: string): boolean =>
+  namePattern.test(value) && !["__proto__", "constructor", "prototype"].includes(value);
+export const isDatabaseName = (value: string): boolean =>
+  databasePattern.test(value) && Buffer.byteLength(value, "utf8") <= 63;
+
+const name = Schema.String.check(Schema.isPattern(namePattern));
 const connection = Schema.Struct({
   provider: Schema.Literal("mongodb"),
   secretRef: Schema.String.check(Schema.isPattern(/^keyring:runnel\/[A-Za-z0-9_-]{1,128}$/)),
 });
 const database = Schema.Struct({
   connection: name,
-  database: Schema.String.check(Schema.isPattern(/^[^\s/\\."$*<>:|?\0]{1,63}$/)),
+  database: Schema.String.check(Schema.isPattern(databasePattern)),
 });
 const timeout = Schema.Number.check(
   Schema.isInt(),
@@ -78,16 +85,13 @@ export function decodeCatalog(input: unknown): Effect.Effect<Catalog, CatalogErr
     ).pipe(Effect.mapError(invalid));
     for (const [envName, env] of Object.entries(catalog.environments)) {
       if (
-        [envName, ...Object.keys(env.connections), ...Object.keys(env.databases)].some((key) =>
-          ["__proto__", "constructor", "prototype"].includes(key)
+        [envName, ...Object.keys(env.connections), ...Object.keys(env.databases)].some(
+          (key) => !isCatalogName(key)
         )
       )
         return yield* Effect.fail(invalid());
       for (const alias of Object.values(env.databases)) {
-        if (
-          !Object.hasOwn(env.connections, alias.connection) ||
-          Buffer.byteLength(alias.database, "utf8") > 63
-        )
+        if (!Object.hasOwn(env.connections, alias.connection) || !isDatabaseName(alias.database))
           return yield* Effect.fail(invalid());
       }
     }

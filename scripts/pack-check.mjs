@@ -119,7 +119,7 @@ try {
   });
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stderr, "");
-  assert.match(cli.stdout, /Other database commands, setup, scripts, and history are planned/);
+  assert.match(cli.stdout, /Other database commands, scripts, and history are planned/);
   const discovery = spawnSync(process.execPath, [executable, "envs"], {
     cwd: consumer,
     env: { ...process.env, RUNNEL_HOME: join(temporary, "empty-catalog") },
@@ -138,13 +138,13 @@ try {
     version.stdout,
     `${manifests.find((pkg) => pkg.name === "@abijith-suresh/runnel").version}\n`
   );
-  const unsupported = spawnSync(process.execPath, [executable, "setup"], {
+  const noninteractiveSetup = spawnSync(process.execPath, [executable, "setup"], {
     cwd: consumer,
     encoding: "utf8",
   });
-  assert.equal(unsupported.status, 1);
-  assert.equal(unsupported.stdout, "");
-  assert.match(unsupported.stderr, /Unsupported arguments/);
+  assert.equal(noninteractiveSetup.status, 1);
+  assert.equal(noninteractiveSetup.stderr, "");
+  assert.equal(JSON.parse(noninteractiveSetup.stdout).error.code, "SetupTerminalRequired");
   const daemonHome = join(temporary, "pack-daemon");
   const daemonCli = (args) =>
     spawnSync(process.execPath, [executable, ...args], {

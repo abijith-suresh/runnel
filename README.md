@@ -1,7 +1,7 @@
 # Runnel
 
-Runnel is planned as agent-first named database access. Humans will register
-credentials and name targets; agents will use short commands without supplying
+Runnel is agent-first named database access. Humans register
+credentials and name targets; agents use short commands without supplying
 connection strings.
 
 Core now implements database target selection from supplied in-memory names.
@@ -12,8 +12,9 @@ validated user-wide catalog. Running it with no arguments shows help.
 Internal helpers support catalog updates, native OS credentials, and a persistent
 worker with MongoDB pools. `list` now starts a local daemon and lists collections
 for a configured alias. `daemon status`, `daemon reset`, and `daemon stop` manage
-its lifecycle. Human setup, other database operations, history, scripts, and MCP
-remain planned. See
+its lifecycle. `setup` prompts for a hidden URI, discovers databases, and
+registers named aliases with credentials in OS storage. Other database operations,
+history, scripts, and MCP remain planned. See
 [CLI usage](apps/cli/README.md) for implemented commands and
 [the development milestone](docs/DEVELOPMENT.md) for ongoing work.
 

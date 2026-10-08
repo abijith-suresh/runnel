@@ -14,7 +14,7 @@ const run = (args: string[]) =>
   spawnSync(process.execPath, [executable, ...args], { encoding: "utf8" });
 
 test("help and no arguments print available options on stdout", () => {
-  for (const args of [[], ["--help"], ["-h"]]) {
+  for (const args of [[], ["--help"], ["-h"], ["setup", "--help"]]) {
     const result = run(args);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stderr, "");
@@ -23,7 +23,8 @@ test("help and no arguments print available options on stdout", () => {
     assert.match(result.stdout, /-v, --version/);
     assert.match(result.stdout, /runnel list -e/);
     assert.match(result.stdout, /runnel daemon status/);
-    assert.match(result.stdout, /Other database commands, setup, scripts, and history are planned/);
+    assert.match(result.stdout, /runnel setup/);
+    assert.match(result.stdout, /Other database commands, scripts, and history are planned/);
   }
 });
 
@@ -50,10 +51,10 @@ test("help takes precedence when both information flags are supplied", () => {
 
 test("unsupported commands, options, and malformed flags fail without stdout", () => {
   for (const args of [
-    ["setup"],
     ["find", "users"],
     ["--env", "dint"],
-    ["--help", "setup"],
+    ["setup", "-e", "local"],
+    ["setup", "--uri", "synthetic-secret"],
     ["--help", "--unknown"],
     ["--version", "extra"],
     ["--help=true"],

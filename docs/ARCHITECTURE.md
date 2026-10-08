@@ -72,8 +72,7 @@ does not trim or change case, and explicit empty strings do not trigger defaults
 
 The error tags describe core selection failures. They are not a finalized CLI or
 IPC JSON envelope. The function performs no I/O and does not mutate supplied names
-or the request. The internal worker uses it before credential lookup; no CLI
-database command uses it yet.
+or the request. The worker uses it before credential lookup for CLI collection listing.
 
 ## CLI information flags
 
@@ -105,7 +104,7 @@ Each environment has `connections` and `databases`. A connection has provider
 `mongodb` and a `keyring:runnel/<identifier>` secret reference. A database alias
 has a connection name within that environment and a physical database name.
 No credential is stored in this file. An internal writer now updates the catalog;
-human setup and migration remain planned.
+human setup adds validated registrations; migration remains planned.
 
 Effect v4 Schema validates every field and rejects extra properties. Environment,
 connection, and alias names use 1 to 64 ASCII letters, digits, underscores, or
@@ -167,7 +166,7 @@ that do not include the connection string. Tests inject a credential-entry facto
 to avoid the user's vault; ordinary `verify` needs no credential service. Packaging
 checks also load the native binding without constructing an entry.
 
-These helpers are internal to the CLI and do not add setup or database commands.
+These helpers are internal to the CLI and now support human `setup`.
 Native Linux round-trip checks use a temporary catalog and synthetic secrets.
 Native Windows checks are still planned.
 
@@ -214,7 +213,7 @@ authentication failures, permission denials, and connectivity failures have safe
 structured categories. Other driver failures use a generic error; raw messages,
 stacks, URIs, and document-bearing diagnostics never cross IPC.
 
-Connection inspection remains internal for upcoming setup. CLI `list` now invokes
+Human `setup` invokes connection inspection through the daemon. CLI `list` now invokes
 the collection-listing operation. History and script execution remain planned.
 The worker IPC format is internal. Native Windows process behavior has not been
 validated on Windows.
@@ -259,5 +258,34 @@ all active and queued requests finish. Status observations do not reset the idle
 timer. Idle shutdown and stop close the worker before releasing daemon ownership.
 Lifecycle commands return JSON envelopes and do not start an absent daemon.
 `list` requires an explicit environment and uses the core's alias selection rules.
-All command failures return structured errors and a nonzero exit. Human setup,
-operation history, other built-ins, scripts, and exports remain planned.
+All command failures return structured errors and a nonzero exit. Operation
+history, other built-ins, scripts, and exports remain planned.
+
+
+## Human setup
+
+`runnel setup` requires interactive stdin and stderr terminals. Credentials cannot
+be passed in arguments or through piped input. It uses Node's
+[readline promises API](https://github.com/nodejs/node/blob/v24.19.0/doc/api/readline.md#promises-api)
+with raw terminal input, a muted output stream for the URI, and no readline history.
+Prompts and selection summaries go to stderr; stdout contains one JSON result.
+Ctrl+C, EOF, and declined confirmation cancel before credential storage. Each
+answer has a 16 KiB input limit. Hidden input restores terminal mode when it ends.
+
+The user chooses an existing or new environment and a new connection name.
+Discovery runs in the worker using an isolated MongoDB client, which closes after
+listing accessible databases. It returns at most 1,000 names with explicit
+truncation. The user selects numbers or enters physical names, then supplies
+unique aliases. Empty results and denied listing permissions allow manual entry;
+manual registration does not verify access. Other inspection failures stop setup.
+Unlisted names remain available when discovery is truncated.
+
+Setup adds registrations without overwriting connections or aliases. After all
+choices and confirmation, OS credential storage receives a new independent entry.
+The serialized catalog commit rechecks name conflicts against the latest catalog,
+retains unrelated changes, and stores only the secret reference. Failed commits
+remove the new secret. Prompting and discovery run outside this commit sequence.
+Credential rotation, editing registrations, and migration remain future work.
+A daemon started for inspection may remain until idle shutdown even if setup is
+cancelled. Native Linux terminal/keyring/MongoDB checks use isolated synthetic
+fixtures; native Windows terminal and credential behavior remain unvalidated.

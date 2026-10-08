@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import type { DaemonResponse } from "./daemon-protocol.js";
+import type { SetupResult } from "./setup.js";
 
 const help = `Runnel
 
@@ -10,6 +11,7 @@ Named database access for agents.
 
 Usage:
   runnel [--help | --version]
+  runnel setup
   runnel envs
   runnel connections -e <environment>
   runnel databases -e <environment>
@@ -22,7 +24,7 @@ Options:
   -e, --env      Select an environment
   -d, --db       Select a database alias; inferred only when there is one
 
-Other database commands, setup, scripts, and history are planned.
+Other database commands, scripts, and history are planned.
 `;
 
 async function main(): Promise<number> {
@@ -43,7 +45,7 @@ async function main(): Promise<number> {
     if (
       positionals.length !== (command === "daemon" ? 2 : command === undefined ? 0 : 1) ||
       (command !== undefined &&
-        !["envs", "connections", "databases", "list", "daemon"].includes(command)) ||
+        !["setup", "envs", "connections", "databases", "list", "daemon"].includes(command)) ||
       (command === "daemon" && !["status", "reset", "stop"].includes(positionals[1] ?? "")) ||
       (values.env !== undefined && !["connections", "databases", "list"].includes(command ?? "")) ||
       (values.db !== undefined && command !== "list") ||
@@ -61,6 +63,23 @@ async function main(): Promise<number> {
   }
 
   const command = positionals[0];
+  if (command === "setup") {
+    const [{ catalogDirectory }, { setup }] = await Promise.all([
+      import("./catalog.js"),
+      import("./setup.js"),
+    ]);
+    let result: SetupResult;
+    try {
+      result = await setup(catalogDirectory());
+    } catch {
+      result = {
+        ok: false,
+        error: { code: "CatalogInvalid", message: "Runnel configuration paths must be absolute." },
+      };
+    }
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return result.ok ? 0 : 1;
+  }
   if (command === "list" || command === "daemon") {
     const [{ catalogDirectory }, { daemonCommand, executeWithDaemon }] = await Promise.all([
       import("./catalog.js"),

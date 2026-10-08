@@ -23,8 +23,9 @@ repository credential or release workflow is required.
   persistent worker supervisor with warm MongoDB pools, connection inspection,
   and collection listing. CLI `list` starts a user-wide daemon; lifecycle commands
   provide status/reset/stop, and idle shutdown waits for active and queued work.
-- Planned: hidden human setup,
-  accessible database discovery, and manual alias registration.
+- Implemented: hidden human setup, accessible database discovery, and manual alias
+  registration for new connections. Existing connections and aliases are preserved.
+  Credential rotation and catalog migration remain future work.
 - Planned: describe, find, count, aggregate, bounded JSON/EJSON results,
   structured errors, and sanitized local operation history.
 - Planned: attached JavaScript scripts with native `db`, cross-environment
