@@ -450,3 +450,36 @@ test("finite CPU work and slow result encoding cannot succeed after the deadline
     await f.cleanup();
   }
 });
+
+test("throwing error accessors become sanitized results and keep queued scripts in the same worker", async () => {
+  const f = await fixture(`let calls=0;export default async({args})=>{
+    calls++;
+    if(args.kind==='code')throw {get code(){throw Error('private code diagnostic');}};
+    if(args.kind==='name'){const error=new Error('private message');Object.defineProperty(error,'name',{get(){throw Error('private name diagnostic');}});throw error;}
+    return {calls,pid:process.pid};
+  };`);
+  const worker = createWorkerSupervisor(f.directory, {
+    entrypoint: new URL("./fixtures/script-worker.mjs", import.meta.url),
+  });
+  try {
+    for (const kind of ["code", "name"]) {
+      const result = await f.operations.execute({ ...f.request, args: JSON.stringify({ kind }) });
+      assert.equal(code(result), "ScriptFailed");
+      assert(!JSON.stringify(result).includes("private"));
+    }
+    const queued = ["code", "name", "success"].map((kind) =>
+      worker.execute({ ...f.request, args: JSON.stringify({ kind }) })
+    );
+    const results = await Promise.all(queued);
+    assert.equal(code(results[0]!), "ScriptFailed");
+    assert.equal(code(results[1]!), "ScriptFailed");
+    const last = Schema.decodeUnknownSync(Schema.JsonObject)(value(results[2]!));
+    assert.deepEqual(last["calls"], { $numberInt: "3" });
+    assert.deepEqual(last["pid"], { $numberInt: String(worker.status().pid) });
+    assert.equal(worker.status().queued, 0);
+    assert(!JSON.stringify(results).includes("private"));
+  } finally {
+    await worker.stop();
+    await f.cleanup();
+  }
+});

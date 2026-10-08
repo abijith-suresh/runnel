@@ -27,45 +27,52 @@ const targetMessages = {
 
 /** Never include driver messages, URIs, documents or stacks in application errors. */
 export function databaseFailure(error: unknown): WorkerResult {
-  if (error instanceof QueryError) return failure(error.code, error.message);
-  const rawCode =
-    typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
-  // promoteValues:false preserves query BSON values, including numeric server error fields.
-  const code =
-    rawCode instanceof BSON.Int32 || rawCode instanceof BSON.Double
-      ? rawCode.value
-      : rawCode instanceof BSON.Long
-        ? rawCode.toNumber()
-        : rawCode;
-  if (code === 26) return failure("CollectionNotFound", "The named collection does not exist.");
-  if (code === 50) return failure("DatabaseTimedOut", "MongoDB exceeded its operation deadline.");
-  if ([2, 9, 14, 72].includes(code as number))
-    return failure(
-      "QueryInvalid",
-      "MongoDB rejected the query or pipeline. Check its operators and values."
-    );
-  if (code === 13)
-    return failure(
-      "PermissionDenied",
-      "The database user does not have permission for this operation."
-    );
-  if (code === 18)
-    return failure(
-      "AuthenticationFailed",
-      "MongoDB rejected the configured credentials. Run setup again."
-    );
-  const name = error instanceof Error ? error.name : "";
-  if (name === "MongoOperationTimeoutError")
-    return failure("DatabaseTimedOut", "MongoDB exceeded its operation deadline.");
-  if (name === "MongoInvalidArgumentError")
-    return failure("QueryInvalid", "The query arguments are invalid.");
-  if (name === "MongoParseError")
-    return failure(
-      "ConnectionInvalid",
-      "The MongoDB connection string is invalid. Check it and retry setup."
-    );
-  if (/Network|ServerSelection/.test(name))
-    return failure("DatabaseUnavailable", "Cannot reach MongoDB. Check the connection and retry.");
+  try {
+    if (error instanceof QueryError) return failure(error.code, error.message);
+    const rawCode =
+      typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    // promoteValues:false preserves query BSON values, including numeric server error fields.
+    const code =
+      rawCode instanceof BSON.Int32 || rawCode instanceof BSON.Double
+        ? rawCode.value
+        : rawCode instanceof BSON.Long
+          ? rawCode.toNumber()
+          : rawCode;
+    if (code === 26) return failure("CollectionNotFound", "The named collection does not exist.");
+    if (code === 50) return failure("DatabaseTimedOut", "MongoDB exceeded its operation deadline.");
+    if ([2, 9, 14, 72].includes(code as number))
+      return failure(
+        "QueryInvalid",
+        "MongoDB rejected the query or pipeline. Check its operators and values."
+      );
+    if (code === 13)
+      return failure(
+        "PermissionDenied",
+        "The database user does not have permission for this operation."
+      );
+    if (code === 18)
+      return failure(
+        "AuthenticationFailed",
+        "MongoDB rejected the configured credentials. Run setup again."
+      );
+    const name = error instanceof Error ? error.name : "";
+    if (name === "MongoOperationTimeoutError")
+      return failure("DatabaseTimedOut", "MongoDB exceeded its operation deadline.");
+    if (name === "MongoInvalidArgumentError")
+      return failure("QueryInvalid", "The query arguments are invalid.");
+    if (name === "MongoParseError")
+      return failure(
+        "ConnectionInvalid",
+        "The MongoDB connection string is invalid. Check it and retry setup."
+      );
+    if (/Network|ServerSelection/.test(name))
+      return failure(
+        "DatabaseUnavailable",
+        "Cannot reach MongoDB. Check the connection and retry."
+      );
+  } catch {
+    // Arbitrary awaited JavaScript errors may have throwing accessors or coercions.
+  }
   return failure("DatabaseOperationFailed", "MongoDB could not complete the operation.");
 }
 
