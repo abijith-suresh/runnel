@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { installLocal } from "./local-install.mjs";
 import { runNpm as invokeNpm } from "./npm-command.mjs";
 import { packages, validateRepository } from "./release-policy.mjs";
 
@@ -21,7 +22,6 @@ const temporary = mkdtempSync(join(tmpdir(), "runnel-pack-"));
 const runNpm = (args, cwd = root) =>
   invokeNpm(args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
 try {
-  const tarballs = [];
   for (const [index, pkg] of packages.entries()) {
     const manifest = manifests[index];
     const destinations = [
@@ -59,27 +59,15 @@ try {
         ),
         "CLI executable needs its shebang"
       );
-    const [packed] = JSON.parse(
-      runNpm([
-        "pack",
-        "--json",
-        "--ignore-scripts",
-        "--workspace",
-        pkg.name,
-        "--pack-destination",
-        temporary,
-      ])
-    );
-    tarballs.push(join(temporary, packed.filename));
   }
-  const consumer = join(temporary, "consumer");
-  execFileSync(process.execPath, ["-e", "require('node:fs').mkdirSync(process.argv[1])", consumer]);
-  writeFileSync(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
-  // Local install only. Supplying all three tarballs resolves internal packages without a registry release.
-  runNpm(
-    ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", ...tarballs],
-    consumer
+  // Exercise the same persistent installer users run, including shell punctuation in its path.
+  const consumer = join(
+    temporary,
+    process.platform === "win32" ? "consumer install #local" : "consumer install # % &"
   );
+  installLocal(root, consumer);
+  // Retained tarballs and lockfile must support rebuilding the local install without a registry release.
+  runNpm(["ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"], consumer);
   const imports = spawnSync(
     process.execPath,
     [

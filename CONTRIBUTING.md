@@ -30,6 +30,7 @@ npm run verify
 | `npm run verify` | Runs the complete development baseline verification |
 | `npm run check:native-credentials` | Optional OS credential round-trip with one synthetic value and cleanup; requires an unlocked vault |
 | `npm run check:mongodb` | Optional installed-tarball smoke check against a loopback test MongoDB server and native credential storage |
+| `npm run install:local -- /absolute/new-directory` | Builds and installs all three tarballs locally; destination must be new and its parent must exist |
 | `npm run version:packages` | Guards and applies a patch-only release plan, then updates the lockfile |
 
 Typechecking checks dependency declarations as well as source, with

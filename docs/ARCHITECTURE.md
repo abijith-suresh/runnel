@@ -68,6 +68,21 @@ databases, secrets, and files on ordinary success or failure. It does not run in
 `verify` or CI, and it does not use the user's configured targets. See
 [local testing](LOCAL_TESTING.md) for its coverage and limitations.
 
+`npm run install:local -- /absolute/new-directory` creates a persistent local
+consumer with all three tarballs, a private manifest and an install lockfile.
+It requires a new destination with an existing parent, refuses existing files,
+directories and links, and removes partial installs after failure. Tarballs remain
+inside the consumer so its local file dependencies can be installed again.
+The installer validates the executable through offline `npm exec` and returns
+installation paths and version. Packaging verification uses this same installer
+from a path containing spaces and punctuation. Windows destinations and their
+physical parents reject `&`, `%`, `^`, `!` and control characters because npm's
+generated `.cmd` launcher cannot reliably preserve them. Windows packaging uses
+spaces and `#`; Linux also tests `%` and `&`. It does not edit PATH, profiles,
+the user's catalog or credential entries. Linux PTY integration has separately
+verified installed human setup and cancellation; native Windows interactive
+setup remains unvalidated.
+
 ## Database target selection
 
 `resolveDatabaseTarget` takes a read-only map of environment names to sets of

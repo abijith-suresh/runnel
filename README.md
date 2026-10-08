@@ -19,8 +19,8 @@ on by default. `run` executes attached JavaScript with native database handles,
 JSON arguments, deadline options, and cancellation without replay. `export` saves bounded JSON/EJSON arrays to new files. MCP remains planned. See
 [CLI usage](apps/cli/README.md) for implemented commands and
 [the development milestone](docs/DEVELOPMENT.md) for ongoing work.
-The [local testing guide](docs/LOCAL_TESTING.md) covers manual use and the optional
-installed-package MongoDB check.
+The [local testing guide](docs/LOCAL_TESTING.md) covers local installation,
+manual use, and the optional installed-package MongoDB check.
 
 ## Development
 
