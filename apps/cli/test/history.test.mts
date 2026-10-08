@@ -415,3 +415,53 @@ test("history snapshots requests and queued reset outcomes while flushing all pe
     code: "WorkerStopped",
   });
 });
+
+test("a busy history lock preserves all operation results and stop acknowledgement during graceful shutdown", async (t) => {
+  for (const mode of ["queued", "completed"]) {
+    const { home, path } = await fixture(t);
+    await writeFile(join(home, "catalog.json"), JSON.stringify(catalog()));
+    await appendHistory(home, entry());
+    const original = await readFile(path, "utf8");
+    const release = await lock(path, { realpath: false });
+    const daemon = await startDaemon(home, { workerEntrypoint });
+    try {
+      const requests = Array.from({ length: 6 }, (_, index) =>
+        daemonExchange(daemon.descriptor, {
+          action: "execute",
+          request: { operation: "list", env: mode === "queued" && index === 0 ? "hang" : "local" },
+        })
+      );
+      const responses = Promise.allSettled(requests);
+      let ready = false;
+      let observedWork = false;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        const status = await daemonCommand(home, "status");
+        if (status.ok && "worker" in status.data) {
+          observedWork ||= status.data.worker.active || status.data.worker.queued > 0;
+          ready =
+            mode === "queued"
+              ? status.data.worker.active && status.data.worker.queued === 5
+              : observedWork && !status.data.worker.active && status.data.worker.queued === 0;
+          if (ready) break;
+        }
+        await delay(5);
+      }
+      assert(ready, `worker did not reach ${mode} state`);
+      assert.deepEqual(await daemonCommand(home, "stop"), { ok: true, data: { stopped: true } });
+      for (const response of await responses) {
+        assert(response.status === "fulfilled", "a completed operation response was lost");
+        assert("warning" in response.value && response.value.warning === "HistoryUnavailable");
+        if (mode === "completed") assert(response.value.ok);
+        else {
+          assert(!response.value.ok);
+          assert.equal(response.value.error.code, "WorkerStopped");
+        }
+      }
+      await daemon.closed;
+      assert.equal(await readFile(path, "utf8"), original);
+    } finally {
+      await daemon.stop();
+      await release();
+    }
+  }
+});

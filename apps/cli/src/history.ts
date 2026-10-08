@@ -150,7 +150,11 @@ export async function readHistory(directory: string): Promise<HistoryEntry[]> {
   }
 }
 /** Validate the entire record; never carry unrecognized fields forward into a history file. */
-export async function appendHistory(directory: string, input: HistoryEntry): Promise<void> {
+export async function appendHistory(
+  directory: string,
+  input: HistoryEntry,
+  options: { waitForLock?: boolean } = {}
+): Promise<void> {
   let release: (() => Promise<void>) | undefined;
   let temporary: string | undefined;
   try {
@@ -161,7 +165,10 @@ export async function appendHistory(directory: string, input: HistoryEntry): Pro
       realpath: false,
       stale: 10000,
       update: 3000,
-      retries: { retries: 10, factor: 1, minTimeout: 100, maxTimeout: 100 },
+      retries:
+        options.waitForLock === false
+          ? 0
+          : { retries: 10, factor: 1, minTimeout: 100, maxTimeout: 100 },
       onCompromised: () => {
         compromised = true;
       },
@@ -246,7 +253,8 @@ export function createOperationHistory(
               : "OperationFailed") as (typeof errorCodes)[number],
           },
     };
-    const saved = writes.then(() => appendHistory(directory, entry));
+    // History must not stall application results or graceful stop behind an external lock.
+    const saved = writes.then(() => appendHistory(directory, entry, { waitForLock: false }));
     writes = saved.catch(() => undefined);
     try {
       await saved;

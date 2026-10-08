@@ -369,7 +369,9 @@ with a 1 MiB read/write cap. Effect v4 schemas reject unknown fields and malform
 entries. Reads require private owned directories and regular files; POSIX file
 opens refuse symlinks and do not block on FIFOs. Hardlinks are rejected. Writers
 use a process lock, private temporary file, fsync, and atomic rename. The daemon
-serializes writes and waits for pending recording before graceful shutdown; normal
+serializes writes and acquires the history lock without waiting, so a busy history
+file produces a warning without holding operation results during shutdown. It
+waits for pending recording before graceful shutdown; normal
 idle accounting includes this work. `runnel history` reads entries newest first
 without starting a daemon or accessing credentials.
 
