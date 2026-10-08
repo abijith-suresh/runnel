@@ -77,6 +77,25 @@ async function source(path: string): Promise<{ path: string; hash: string }> {
 }
 function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
   const seen = new Set<object>();
+  const copyBytes = (value: unknown): Buffer => {
+    if (!(value instanceof Uint8Array) || !ArrayBuffer.isView(value))
+      throw new Error("Invalid BSON bytes");
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    if (
+      Reflect.ownKeys(descriptors).some(
+        (key) => typeof key !== "string" || !/^\d+$/.test(key) || !("value" in descriptors[key]!)
+      )
+    )
+      throw new Error("Modified BSON bytes");
+    const length: unknown = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Uint8Array.prototype),
+      "byteLength"
+    )?.get?.call(value);
+    if (typeof length !== "number") throw new Error("Invalid BSON bytes");
+    const copy = Buffer.alloc(length);
+    Uint8Array.prototype.set.call(copy, value);
+    return copy;
+  };
   const bsonPrototypes = new Set(
     [
       BSON.Binary,
@@ -195,12 +214,10 @@ function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
           return new BSON.BSONRegExp(pattern, options);
         }
         if (item instanceof BSON.Binary) {
-          const bytes = data("buffer"),
+          const bytes = copyBytes(data("buffer")),
             subtype = data("sub_type"),
             position = data("position");
           if (
-            !(bytes instanceof Uint8Array) ||
-            !ArrayBuffer.isView(bytes) ||
             typeof subtype !== "number" ||
             !Number.isInteger(subtype) ||
             subtype < 0 ||
@@ -213,17 +230,12 @@ function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
             throw new Error("Invalid BSON binary");
           if ((subtype === 4 && position !== 16) || (item instanceof BSON.UUID && subtype !== 4))
             throw new Error("Invalid UUID");
-          return new BSON.Binary(Buffer.from(bytes).subarray(0, position), subtype);
+          return new BSON.Binary(bytes.subarray(0, position), subtype);
         }
         if (item instanceof BSON.Decimal128) {
-          const bytes = data("bytes");
-          if (
-            !(bytes instanceof Uint8Array) ||
-            !ArrayBuffer.isView(bytes) ||
-            bytes.byteLength !== 16
-          )
-            throw new Error("Invalid BSON decimal");
-          return new BSON.Decimal128(Buffer.from(bytes));
+          const bytes = copyBytes(data("bytes"));
+          if (bytes.byteLength !== 16) throw new Error("Invalid BSON decimal");
+          return new BSON.Decimal128(bytes);
         }
         if (item instanceof BSON.ObjectId) {
           for (const descriptor of Object.values(descriptors)) snapshot(descriptor.value);
@@ -256,7 +268,7 @@ function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
           throw new Error("Invalid regular expression");
         return new RegExp(pattern, flags);
       }
-      if (Buffer.isBuffer(item)) return Buffer.from(item);
+      if (Buffer.isBuffer(item)) return new BSON.Binary(copyBytes(item));
       if (Array.isArray(item))
         return Array.from({ length: data("length") as number }, (_, index) =>
           snapshot(data(String(index)))

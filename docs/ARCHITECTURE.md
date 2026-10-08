@@ -425,8 +425,9 @@ BSON values before encoding. JavaScript integers outside the safe integer range
 use BSON Double, preserving their actual IEEE754 values instead of inferring Int64.
 Safe integers keep the query encoder's integer representation. Snapshotting means
 validation and serialization use the same values. It does not silently truncate
-arbitrary values. Awaited failures use fixed application messages even if a
-script modifies a caught error, with useful driver
+arbitrary values. Buffers become BSON Binary. Native byte copies reject modified
+payload properties and avoid script-owned coercion methods. Awaited failures use
+fixed application messages even if a script modifies a caught error, with useful driver
 permission and connection categories. Script bodies, arguments, filenames, and
 raw error messages are excluded from application errors and operation history.
 The recorder stores one `run` entry for the primary configured target, rather than

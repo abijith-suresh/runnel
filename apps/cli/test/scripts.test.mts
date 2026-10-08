@@ -795,3 +795,49 @@ test("ObjectId snapshots validate captured bytes and native RegExp overrides can
     await f.cleanup();
   }
 });
+
+test("byte snapshots reject payload overrides and copy actual native bytes without Buffer coercion", async () => {
+  const f = await fixture("export default async()=>true;");
+  const worker = createWorkerSupervisor(f.directory, {
+    entrypoint: new URL("./fixtures/script-worker.mjs", import.meta.url),
+  });
+  try {
+    for (const [index, body] of [
+      "export default async({bson})=>{const value=new bson.Binary(new Uint8Array([1,2,3]),4);Object.defineProperties(value.buffer,{byteLength:{get(){return 16;}},length:{get(){return 16;}}});value.position=16;return value;};",
+      "export default async({bson})=>{const value=bson.Decimal128.fromString('1.25');value.bytes=new Uint8Array([1,2,3]);Object.defineProperties(value.bytes,{byteLength:{get(){return 16;}},length:{get(){return 16;}}});return value;};",
+      "export default async()=>{const value=Buffer.from([1,2,3]);value.valueOf=()=>Buffer.from('changed');return value;};",
+      "export default async({bson})=>{const value=new bson.Binary(new Uint8Array([1,2,3]),4);Object.defineProperties(value.buffer,{byteLength:{value:16},length:{value:16}});value.position=16;return value;};",
+    ].entries()) {
+      const path = join(f.directory, `modified-bytes-${index}.mjs`);
+      await writeFile(path, body);
+      for (const format of ["json", "ejson"] as const)
+        for (const execute of [
+          (request: ScriptOperation) => f.operations.execute(request),
+          (request: ScriptOperation) => worker.execute(request),
+        ]) {
+          const result = await execute({ ...f.request, path, format });
+          assert.equal(code(result), "ResultEncodingFailed");
+          assert(!JSON.stringify(result).includes("changed"));
+        }
+    }
+    const valid = join(f.directory, "native-bytes.mjs");
+    await writeFile(
+      valid,
+      "export default async({bson})=>({buffer:Buffer.from([1,2,3]),binary:new bson.Binary(new Uint8Array([4,5,6])),decimal:bson.Decimal128.fromString('1.25')});"
+    );
+    for (const format of ["json", "ejson"] as const)
+      for (const execute of [
+        (request: ScriptOperation) => f.operations.execute(request),
+        (request: ScriptOperation) => worker.execute(request),
+      ]) {
+        const encoded = value(await execute({ ...f.request, path: valid, format }));
+        const decoded = BSON.EJSON.deserialize({ value: encoded }, { relaxed: false })["value"];
+        assert.deepEqual(Array.from(decoded.buffer.buffer), [1, 2, 3]);
+        assert.deepEqual(Array.from(decoded.binary.buffer), [4, 5, 6]);
+        assert.equal(decoded.decimal.toString(), "1.25");
+      }
+  } finally {
+    await worker.stop();
+    await f.cleanup();
+  }
+});
