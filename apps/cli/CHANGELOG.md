@@ -1,5 +1,15 @@
 # @abijith-suresh/runnel
 
+## 0.0.4
+
+### Patch Changes
+
+- fc6c78a: Add interactive setup with hidden MongoDB URI input, accessible database discovery, manual alias selection, and atomic registration backed by OS credential storage. Preserve existing names and remove new credentials when catalog commits fail.
+- d06bf8b: Add describe, find, count, and aggregate commands through the persistent worker. Support bounded inline/file/stdin JSON and EJSON inputs, explicit result truncation, canonical BSON output, safe relaxed Int64 handling, and structured driver errors with cursor cleanup.
+- 5b81f32: Record bounded local database operation history by default, using configured target names and sanitized outcomes only. Add offline history inspection, a catalog opt-out setting, atomic private storage, and warnings that preserve database results when history cannot be saved.
+- @abijith-suresh/runnel-core@0.0.4
+  - @abijith-suresh/runnel-mongodb@0.0.4
+
 ## 0.0.3
 
 ### Patch Changes
