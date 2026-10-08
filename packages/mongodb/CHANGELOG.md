@@ -1,5 +1,11 @@
 # @abijith-suresh/runnel-mongodb
 
+## 0.0.6
+
+### Patch Changes
+
+- @abijith-suresh/runnel-core@0.0.6
+
 ## 0.0.5
 
 ### Patch Changes

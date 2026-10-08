@@ -1,5 +1,15 @@
 # @abijith-suresh/runnel
 
+## 0.0.6
+
+### Patch Changes
+
+- 9c7c392: Add an optional installed-package MongoDB smoke check and a local testing guide.
+- f2a020d: Add a local tarball installation command with overwrite protection and Linux/Windows usage instructions.
+- c54f45b: Invoke npm helpers through Node for Windows portability and require native Windows build, package, lifecycle, and synthetic credential-storage checks in CI. Treat native null and undefined password results as missing credentials.
+- @abijith-suresh/runnel-core@0.0.6
+  - @abijith-suresh/runnel-mongodb@0.0.6
+
 ## 0.0.5
 
 ### Patch Changes
