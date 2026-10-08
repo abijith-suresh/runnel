@@ -6,6 +6,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   stat,
   symlink,
@@ -305,7 +306,8 @@ test("CLI exports resolve relative destinations, read stdin filters and record o
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stderr, "");
     const envelope = JSON.parse(result.stdout);
-    assert.equal(envelope.data.output, join(directory, "users.ejson"));
+    // Windows temporary roots can use an 8.3 alias; export reports the real parent.
+    assert.equal(envelope.data.output, join(await realpath(directory), "users.ejson"));
     assert.equal(envelope.data.documents, 1);
     assert.equal(envelope.data.truncated, true);
     assert(!result.stdout.includes("secretDocument"));
