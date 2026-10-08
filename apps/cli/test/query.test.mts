@@ -192,6 +192,127 @@ test("query request preparation validates options and reads one selected JSON so
   await assert.rejects(buildQueryRequest("describe", "", {}), QueryError);
 });
 
+test("JSON regex predicates, siblings, DBRef records, and pipeline stages survive EJSON conversion", async () => {
+  const input = {
+    name: { $regex: "^a", $options: "i", $ne: "abc", $nin: ["ax"] },
+    typed: { $regex: { $regularExpression: { pattern: "^b", options: "i" } }, $exists: true },
+    incomplete: { $ref: "users" },
+    ref: {
+      $ref: "users",
+      $id: { $oid: "000000000000000000000001" },
+      extra: { $numberLong: "9007199254740993" },
+    },
+    code: { $code: "return query", $scope: { query: { $regex: "a", $ne: "abc" } } },
+  };
+  for (const parsed of [
+    parseQueryObject(JSON.stringify(input)),
+    parsePipeline(JSON.stringify([{ $match: input }]))[0]?.["$match"],
+    prepareQuery(await buildQueryRequest("find", "users", { filter: JSON.stringify(input) }))
+      .filter,
+  ]) {
+    const document = parsed as Record<string, unknown>;
+    assert.deepEqual(document["name"], input.name);
+    assert.deepEqual(document["incomplete"], input.incomplete);
+    assert.deepEqual(document["typed"], { $regex: new BSON.BSONRegExp("^b", "i"), $exists: true });
+    const ref = document["ref"] as Record<string, unknown>;
+    assert(ref["$id"] instanceof BSON.ObjectId);
+    assert(ref["extra"] instanceof BSON.Long);
+    assert.equal(ref["extra"].toString(), "9007199254740993");
+    const code = document["code"];
+    assert(code instanceof BSON.Code);
+    assert.deepEqual(code.scope?.["query"], input.code.$scope.query);
+    const wire = BSON.deserialize(BSON.serialize(document), { promoteValues: false });
+    assert.deepEqual(wire["name"], input.name);
+    assert.equal(wire["typed"].$exists, true);
+  }
+});
+
+test("known EJSON wrapper shapes and values reject silent driver coercion before credential access", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-ejson-validation-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let reads = 0;
+  const operations = workerOperations(
+    directory,
+    {
+      database: async () => {
+        throw new Error("unexpected pool access");
+      },
+      close: async () => {},
+    },
+    {
+      ...credentialStore(),
+      read: () => {
+        reads++;
+        return Effect.succeed("synthetic-secret");
+      },
+    }
+  );
+  for (const wrapper of [
+    { $date: "not-a-date" },
+    { $date: "2025-02-30T00:00:00Z" },
+    { $date: { $numberLong: "9223372036854775807" } },
+    { $date: { $numberLong: "-8640000000000001" } },
+    { $date: null },
+    { $binary: { base64: "!!!!", subType: "00" } },
+    { $binary: { base64: "AQ", subType: "00" } },
+    { $binary: { base64: "AQ==", subType: "zz" } },
+    { $binary: { base64: "AQ==", subType: "100" } },
+    { $binary: { base64: "AQ==", subType: "0g" } },
+    { $binary: { base64: "AQ==" } },
+    { $timestamp: { t: 4294967296, i: 0 } },
+    { $timestamp: { t: -2147483649, i: 0 } },
+    { $timestamp: { t: 0, i: 4294967296 } },
+    { $timestamp: { t: 0, i: 0.5 } },
+    { $code: 123 },
+    { $code: "return n", $scope: [] },
+    { $code: "return n", $scope: 123 },
+    { $scope: {} },
+    { $minKey: 0 },
+    { $maxKey: "junk" },
+    { $undefined: 1 },
+    { $regularExpression: { pattern: "a" } },
+    { $regularExpression: { pattern: "a", options: null } },
+    { $regularExpression: { pattern: "a", options: "z" } },
+    { $oid: null },
+    { $symbol: 123 },
+    ...[
+      { $oid: "000000000000000000000001" },
+      { $uuid: "00000000-0000-0000-0000-000000000001" },
+      { $symbol: "n" },
+      { $date: "2025-01-01T00:00:00Z" },
+      { $timestamp: { t: 0, i: 0 } },
+    ].map((wrapper) => ({ ...wrapper, extra: true })),
+  ]) {
+    const filter = JSON.stringify({ n: wrapper });
+    assert.throws(() => parseQueryObject(filter), QueryError);
+    await assert.rejects(buildQueryRequest("find", "users", { filter }), QueryError);
+    const result = await operations.execute(query("find", { filter }));
+    assert(!result.ok);
+    assert.equal(result.error.code, "InputInvalid");
+  }
+  assert.equal(reads, 0);
+  for (const wrapper of [
+    { $date: "2024-02-29T12:30:05.125+05:30" },
+    { $date: { $numberLong: "-8640000000000000" } },
+    { $date: { $numberLong: "8640000000000000" } },
+    { $binary: { base64: "AQ==", subType: "0" } },
+    { $binary: { base64: "", subType: "80" } },
+    { $timestamp: { t: 4294967295, i: 4294967295 } },
+    { $code: "return n", $scope: { n: { $numberLong: "9007199254740993" } } },
+    { $regularExpression: { pattern: "a", options: "im" } },
+    { $minKey: 1 },
+    { $maxKey: 1 },
+    { $undefined: true },
+    { $symbol: "n" },
+    { $uuid: "00000000-0000-0000-0000-000000000001" },
+    { $dbPointer: { $ref: "users", $id: { $oid: "000000000000000000000001" } } },
+  ]) {
+    const text = JSON.stringify({ n: wrapper });
+    assert.deepEqual(parseQueryObject(text), BSON.EJSON.parse(text, { relaxed: false }));
+  }
+  assert.throws(() => parseQueryObject('{"nul\\u0000key":1}'), QueryError);
+});
+
 test("find applies filter/projection/sort/offset, preserves native BSON locally, and closes at the document cap", async () => {
   const state = { visited: 0, closed: 0 };
   let options: unknown;
