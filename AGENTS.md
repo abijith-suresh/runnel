@@ -55,6 +55,8 @@ Current behavior includes core names-only target selection and CLI help/version
 and offline catalog discovery, with internal catalog-write, OS credential, and
 persistent worker helpers. The worker owns native MongoDB handles, inspects
 connections, and lists collections. The supervisor queues one operation at a time
-and resets without replay. No CLI database command, human setup flow, daemon,
-or script runner is implemented yet. Keep this status and
+and resets without replay. The CLI now starts a user-wide local daemon for `list`
+and supports `daemon status`, `daemon reset`, and `daemon stop`. Active and queued
+work prevent idle shutdown. Human setup, other database commands, history, and
+script execution remain planned. Keep this status and
 the owning documents accurate as each slice lands.

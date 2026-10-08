@@ -228,12 +228,13 @@ export function createWorkerSupervisor(directory: string, options: Options = {})
         void pump();
       });
     },
-    status: () => ({
-      state: stopped ? "stopped" : changing ? "restarting" : session ? "running" : "idle",
-      pid: session?.child.pid,
-      active: active !== undefined,
-      queued: queue.length,
-    }),
+    status: () =>
+      ({
+        state: stopped ? "stopped" : changing ? "restarting" : session ? "running" : "idle",
+        pid: session?.child.pid,
+        active: active !== undefined,
+        queued: queue.length,
+      }) as const,
     reset: () => transition(false),
     stop: () => transition(true),
   };

@@ -22,7 +22,8 @@ credential access. Core exports database target selection; provider contracts
 remain future work. MongoDB exports its worker-local pool manager. The CLI library
 entry point still exports an empty module. The executable supports help/version
 and offline catalog discovery. Internal worker operations inspect connections and
-list collections, but no CLI database commands exist yet.
+list collections. CLI `list` invokes them through a local daemon; other database
+commands remain planned.
 
 All workspaces are publishable with public access and fixed, aligned versions.
 The CLI uses ordinary package dependencies rather than bundling. The future
@@ -115,8 +116,9 @@ I/O failures remain distinct. Nonregular files are rejected without waiting for
 a FIFO writer. Physical database names exclude whitespace and MongoDB's forbidden
 characters on either platform and use at most 63 UTF-8 bytes, following
 [MongoDB's naming limits](https://www.mongodb.com/docs/manual/reference/limits/#naming-restrictions).
-Settings are nonnegative integer milliseconds bounded
-by Node's timer range; their operational behavior remains planned.
+Settings are nonnegative integer milliseconds bounded by Node's timer range.
+The daemon reads `idleTimeoutMs` at startup; zero disables idle shutdown.
+`scriptTimeoutMs` remains reserved for the planned script runner.
 
 `envs`, `connections -e <name>`, and `databases -e <name>` return sorted configured
 names or mappings in JSON envelopes. Success is `{ "ok": true, "data": ... }`;
@@ -176,7 +178,8 @@ channel. Requests and results are JSON application values validated with Effect
 v4 Schema. Unknown fields, invalid shapes, and messages over 1 MiB fail. Native
 clients, databases, and cursors stay inside the worker. Child stdout and stderr
 are discarded so dependency diagnostics cannot contaminate command output.
-No detached daemon or client transport exists yet.
+The detached daemon now owns this supervisor; separate CLI invocations reach it
+over an authenticated local socket.
 
 The supervisor retains one worker and dispatches one application operation at a
 time. At most 32 additional operations can wait. It snapshots requests before
@@ -211,7 +214,50 @@ authentication failures, permission denials, and connectivity failures have safe
 structured categories. Other driver failures use a generic error; raw messages,
 stacks, URIs, and document-bearing diagnostics never cross IPC.
 
-These operations are internal building blocks for upcoming setup and database
-commands. There is no CLI integration, history, script execution, daemon idle
-timer, or public IPC protocol yet. Native Windows process behavior has not been
+Connection inspection remains internal for upcoming setup. CLI `list` now invokes
+the collection-listing operation. History and script execution remain planned.
+The worker IPC format is internal. Native Windows process behavior has not been
 validated on Windows.
+
+## Local daemon and CLI transport
+
+Database work starts `daemon.js` as a detached Node process with ignored stdio.
+Information flags and offline discovery do not start it. The daemon holds a
+`proper-lockfile` ownership lock for its lifetime and supervises one worker.
+Concurrent startup requests converge on the same daemon; losing starter processes
+exit without owning a worker. An abandoned lock can recover after its 10-second
+stale threshold. Recovery does not kill a descriptor PID or replace a live
+process, even if that PID belongs to something else.
+
+Runtime metadata lives in `<catalog directory>/daemon/daemon.json`. It contains
+an endpoint, random instance ID and authentication token, PID, package version,
+and internal protocol version. It contains no database credentials. New POSIX
+runtime directories use `0700`; metadata files and sockets use `0600`. Readers
+check owner identity and permissions and reject symlinks or nonregular metadata.
+Metadata replacement is atomic. Corrupt or insecure metadata fails rather than
+silently starting another daemon. Shutdown removes only its own instance record.
+
+The transport uses Unix domain sockets on POSIX and a random named pipe on Windows,
+following [Node's IPC support](https://github.com/nodejs/node/blob/v24.x/doc/api/net.md#ipc-support).
+Long POSIX configuration paths use a short private directory under the system
+temporary directory, keyed by user ID and runtime path. Socket paths stay below
+100 bytes. Windows metadata uses inherited filesystem ACLs; native Windows
+access and lifecycle behavior still need validation.
+
+Each connection carries one authenticated, newline-terminated JSON request and
+one result, bounded to 1 MiB. At most 64 connections are retained. Incomplete
+requests have a two-second inactivity timeout. Tokens and transport diagnostics
+never appear in user output. A lost operation result reports
+`OperationOutcomeUnknown` and is never retried. Status/reset/stop work with a
+compatible protocol across package versions; database work requires a matching
+package version and directs the user to stop an older daemon. No public IPC
+compatibility promise is made.
+
+The daemon reads the catalog's idle setting at startup, defaulting to five
+minutes. Accepted application operations and resets postpone idle shutdown until
+all active and queued requests finish. Status observations do not reset the idle
+timer. Idle shutdown and stop close the worker before releasing daemon ownership.
+Lifecycle commands return JSON envelopes and do not start an absent daemon.
+`list` requires an explicit environment and uses the core's alias selection rules.
+All command failures return structured errors and a nonzero exit. Human setup,
+operation history, other built-ins, scripts, and exports remain planned.

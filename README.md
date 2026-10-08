@@ -10,9 +10,10 @@ environment has exactly one alias. The CLI supports help/version and offline
 discovery of configured environments, connections, and database aliases from a
 validated user-wide catalog. Running it with no arguments shows help.
 Internal helpers support catalog updates, native OS credentials, and a persistent
-worker with MongoDB pools. The worker can inspect a connection and list collections,
-but these operations are not exposed as CLI commands yet. Human setup, daemon
-startup, other database operations, scripts, and MCP remain planned. See
+worker with MongoDB pools. `list` now starts a local daemon and lists collections
+for a configured alias. `daemon status`, `daemon reset`, and `daemon stop` manage
+its lifecycle. Human setup, other database operations, history, scripts, and MCP
+remain planned. See
 [CLI usage](apps/cli/README.md) for implemented commands and
 [the development milestone](docs/DEVELOPMENT.md) for ongoing work.
 

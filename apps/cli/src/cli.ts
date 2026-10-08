@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+import type { DaemonResponse } from "./daemon-protocol.js";
 
 const help = `Runnel
 
@@ -12,17 +13,20 @@ Usage:
   runnel envs
   runnel connections -e <environment>
   runnel databases -e <environment>
+  runnel list -e <environment> [-d <database>]
+  runnel daemon status | reset | stop
 
 Options:
   -h, --help     Show this help
   -v, --version  Print the package version
-  -e, --env      Select an environment for offline discovery
+  -e, --env      Select an environment
+  -d, --db       Select a database alias; inferred only when there is one
 
-Database commands are planned and are not implemented.
+Other database commands, setup, scripts, and history are planned.
 `;
 
 async function main(): Promise<number> {
-  let values: { help?: boolean; version?: boolean; env?: string };
+  let values: { help?: boolean; version?: boolean; env?: string; db?: string };
   let positionals: string[];
   try {
     ({ values, positionals } = parseArgs({
@@ -30,15 +34,19 @@ async function main(): Promise<number> {
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
         env: { type: "string", short: "e" },
+        db: { type: "string", short: "d" },
       },
       strict: true,
       allowPositionals: true,
     }));
     const command = positionals[0];
     if (
-      positionals.length > 1 ||
-      (command !== undefined && !["envs", "connections", "databases"].includes(command)) ||
-      (values.env !== undefined && (command === undefined || command === "envs")) ||
+      positionals.length !== (command === "daemon" ? 2 : command === undefined ? 0 : 1) ||
+      (command !== undefined &&
+        !["envs", "connections", "databases", "list", "daemon"].includes(command)) ||
+      (command === "daemon" && !["status", "reset", "stop"].includes(positionals[1] ?? "")) ||
+      (values.env !== undefined && !["connections", "databases", "list"].includes(command ?? "")) ||
+      (values.db !== undefined && command !== "list") ||
       (values.version && command !== undefined)
     )
       throw new Error("Unsupported arguments");
@@ -53,6 +61,38 @@ async function main(): Promise<number> {
   }
 
   const command = positionals[0];
+  if (command === "list" || command === "daemon") {
+    const [{ catalogDirectory }, { daemonCommand, executeWithDaemon }] = await Promise.all([
+      import("./catalog.js"),
+      import("./daemon-client.js"),
+    ]);
+    let result: DaemonResponse;
+    try {
+      result =
+        command === "daemon"
+          ? await daemonCommand(catalogDirectory(), positionals[1] as "status" | "reset" | "stop")
+          : values.env === undefined
+            ? {
+                ok: false,
+                error: {
+                  code: "EnvironmentRequired",
+                  message: "Specify an environment with -e or --env.",
+                },
+              }
+            : await executeWithDaemon(catalogDirectory(), {
+                operation: "list",
+                env: values.env,
+                ...(values.db === undefined ? {} : { db: values.db }),
+              });
+    } catch {
+      result = {
+        ok: false,
+        error: { code: "CatalogInvalid", message: "Runnel configuration paths must be absolute." },
+      };
+    }
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return result.ok ? 0 : 1;
+  }
   if (command === "envs" || command === "connections" || command === "databases") {
     const [Effect, Result, { catalogDirectory }, { discover }] = await Promise.all([
       import("effect/Effect"),
