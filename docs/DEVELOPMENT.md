@@ -49,8 +49,17 @@ repository credential or release workflow is required.
   modules, reset, exports, offline discovery, and history privacy.
   Registration uses the internal setup helper; this check does not exercise
   interactive terminal prompts or database-user permission denials.
-- Planned: a persistent local package installation for hands-on testing,
-  native Windows database and interactive-terminal testing.
+- Implemented: `npm run install:local` builds and installs all three artifacts
+  together into a new directory for hands-on use. Baseline packaging checks run
+  this installer, including the executable from a path with spaces and punctuation.
+  Existing destinations are refused and failed installs remove only their own
+  partial directory. The guide covers session PATH setup on Linux and Windows.
+- A separate installed-CLI Linux PTY check passed hidden setup input, database
+  discovery, manual alias registration, native credentials, queries, declined
+  saving, and Ctrl+C during setup, with fixture cleanup.
+- Native Windows database and interactive-terminal testing, and authenticated
+  permission-denial integration, remain follow-up platform checks. The Linux CLI
+  is available for local testing without publication.
 
 The agreed semantics remain in [DESIGN.md](DESIGN.md). Routine implementation
 defaults may be chosen during these slices and documented when they become real.

@@ -1,16 +1,61 @@
 # Local testing
 
 Runnel has not been published. Use Node 24 and npm at the versions pinned in
-`mise.toml`, then run `npm ci` and `npm run build` from the repository root.
+`mise.toml`, then run `npm ci` from the repository root.
 The CLI commands below are implemented. MCP and other database providers remain
 planned.
 
-## Try the compiled CLI
+## Install a local build
+
+Run `npm run install:local` with an absolute path to a new directory. Its parent
+must exist. The command builds, packs and installs all three workspace packages
+together, then checks the installed `runnel --version`. It keeps the tarballs
+and lockfile in that directory so internal dependencies resolve without an npm
+publication.
+
+On Linux or WSL, run this from the checkout.
+
+```sh
+mkdir -p "$HOME/.local/share"
+runnel_install="$HOME/.local/share/runnel-local"
+npm run install:local -- "$runnel_install"
+export PATH="$runnel_install/node_modules/.bin:$PATH"
+runnel --version
+runnel --help
+```
+
+On native Windows, run this from the checkout in PowerShell.
+
+```powershell
+$runnelInstall = Join-Path $env:LOCALAPPDATA 'RunnelLocal'
+npm run install:local -- $runnelInstall
+$env:Path = "$runnelInstall\node_modules\.bin;$env:Path"
+runnel --version
+runnel --help
+```
+
+The PATH change makes `runnel` available from any directory in this terminal.
+Add the installation's `node_modules/.bin` directory to your shell profile or
+Windows user PATH to retain it in new terminals. Remove any previous development
+alias or function named `runnel` when switching to the installed executable.
+
+The installer refuses existing files, directories and links, including empty
+directories. A failed install removes its newly created directory; cleanup
+failures are reported. It prints JSON with the installation, executable, bin
+directory and version. There is no global install or shell-profile edit.
+
+Before switching versions, stop the old daemon with `runnel daemon stop`.
+Install the new build into another new directory and update PATH. The installed
+build stays unchanged when the checkout is edited or rebuilt. Catalogs and OS
+credentials remain user-wide and separate from the installation directory.
+
+## Try the compiled CLI instead
 
 On Linux or WSL, define a terminal alias using the absolute checkout path.
 This works from other directories and lasts for the current shell session.
 
 ```sh
+npm run build
 alias runnel='node /tmp/runnel-core-target-selection/apps/cli/dist/cli.js'
 runnel --version
 runnel --help
@@ -20,6 +65,7 @@ Replace that path with your checkout. On native Windows, use a PowerShell
 function with your Windows checkout path.
 
 ```powershell
+npm run build
 function runnel { node C:\Code\runnel\apps\cli\dist\cli.js @args }
 runnel --version
 runnel --help
@@ -27,6 +73,8 @@ runnel --help
 
 After rebuilding, run `runnel daemon stop` before your next database command.
 The daemon keeps its loaded worker modules until it stops.
+
+## Register and query a target
 
 Linux requires a session D-Bus connection and an unlocked Secret Service store,
 such as GNOME Keyring. Native Windows uses Windows credential storage. Run
@@ -38,6 +86,25 @@ prompt. Choose an environment, a new connection name, and database aliases.
 The final confirmation saves secret references in the user-wide catalog;
 connection strings stay in OS storage. Setup can register a physical database
 name manually even before that database exists.
+
+For a local sandbox, register an environment named `local`, a physical database
+named `runnel_sandbox`, and an alias named `sandbox`. To create one synthetic row
+there, save this as `seed.mjs` and run it against that alias.
+
+```js
+export default async function ({ db, signal }) {
+  await db.collection("users").updateOne(
+    { _id: "runnel-demo-user" },
+    { $set: { name: "Ada", active: true } },
+    { upsert: true, signal }
+  );
+  return { users: await db.collection("users").countDocuments({}, { signal }) };
+}
+```
+
+```sh
+runnel run seed.mjs -e local -d sandbox --format json
+```
 
 ```sh
 runnel envs
@@ -111,7 +178,9 @@ publication occurs. Registration uses the installed internal setup helper, so
 interactive hidden-input behavior is outside this check.
 
 The check passed on Linux in WSL with MongoDB 8.0.32 and native Secret Service
-storage. Native Windows CI covers package installation, process/file lifecycle,
+storage. A separate Linux PTY check passed installed-CLI setup, hidden URI input,
+manual alias registration, queries, declined saving and Ctrl+C during setup.
+Native Windows CI covers package installation, process/file lifecycle,
 and credential persistence. Native Windows MongoDB access, terminal setup and
 Ctrl+C behavior still need testing on the work laptop. Permission-denial behavior
 also needs an authenticated MongoDB integration fixture. `npm run verify` remains

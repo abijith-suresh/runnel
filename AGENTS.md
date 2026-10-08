@@ -71,5 +71,8 @@ accurate as each slice lands.
 `npm run check:mongodb` optionally tests installed tarballs against a loopback
 test MongoDB server with synthetic databases, an isolated catalog, and native
 credential storage. It cleans up its own fixtures and is excluded from `verify`.
-See `docs/LOCAL_TESTING.md`; interactive setup and native Windows database use
+`npm run install:local -- /absolute/new-directory` installs the three local
+tarballs together and refuses existing destinations. Baseline packaging uses
+this installer. Linux PTY setup and cancellation have passed separate checks.
+See `docs/LOCAL_TESTING.md`; native Windows database and interactive terminal use
 remain separate checks.

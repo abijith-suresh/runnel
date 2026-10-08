@@ -69,9 +69,10 @@ Run CLI tests with `npm test --workspace @abijith-suresh/runnel`.
 `npm run pack:check` checks
 all package artifacts and imports in a temporary local consumer without global
 installation or publication.
-The repository's [local testing guide](../../docs/LOCAL_TESTING.md) also covers
-manual setup and `npm run check:mongodb`, an optional installed-package check
-against a local test server with native credential storage.
+The repository's [local testing guide](../../docs/LOCAL_TESTING.md) covers
+`npm run install:local` for a persistent local installation, manual setup and
+`npm run check:mongodb`, an optional installed-package check against a local test
+server with native credential storage.
 
 See [the repository](https://github.com/abijith-suresh/runnel) for planned commands
 and development documentation. This package has not been published.
