@@ -64,5 +64,6 @@ and `aggregate` with bounded JSON/EJSON results. Operation history is on by defa
 the internal script runner now uses real native handles, cross-environment connects,
 BSON helpers, bounded results, and explicit deadlines. CLI `run` is attached, supports
 JSON inline/file/stdin arguments and deadline options, and cancels without replay.
-Exports remain planned. Keep this status and the owning documents
+CLI `export` saves bounded JSON/EJSON arrays to new files without replacing existing destinations.
+MCP remains planned. Keep this status and the owning documents
 accurate as each slice lands.

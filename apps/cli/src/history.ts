@@ -13,7 +13,15 @@ import { decodeOperation, type WorkerOperation, type WorkerResult } from "./work
 
 export const historyMaximumEntries = 1000;
 export const historyMaximumBytes = 1024 * 1024;
-const operations = Schema.Literals(["list", "describe", "find", "count", "aggregate", "run"]);
+const operations = Schema.Literals([
+  "list",
+  "describe",
+  "find",
+  "count",
+  "aggregate",
+  "export",
+  "run",
+]);
 const errorCodes = [
   "EnvironmentRequired",
   "EnvironmentNotFound",

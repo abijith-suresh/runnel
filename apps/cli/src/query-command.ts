@@ -4,7 +4,7 @@ import { prepareQuery, type QueryOperation } from "./mongodb-query.js";
 import { parsePipeline, parseQueryObject, QueryError, readQueryInput } from "./query-input.js";
 import { decodeOperation } from "./worker-protocol.js";
 
-export type QueryCommand = "describe" | "find" | "count" | "aggregate";
+export type QueryCommand = "describe" | "find" | "export" | "count" | "aggregate";
 export type QueryValues = Partial<
   Record<
     | "filter"
@@ -69,7 +69,7 @@ export async function buildQueryRequest(
     const filter = await source("filter", "{}");
     if (filter !== undefined) parseQueryObject(filter);
     request = { ...base, filter };
-    if (command === "find") {
+    if (command === "find" || command === "export") {
       const projection = await source("projection");
       const sort = await source("sort");
       request = {

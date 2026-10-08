@@ -25,8 +25,8 @@ entry point still exports an empty module. The executable supports help/version
 and offline catalog discovery. Internal worker operations inspect connections and
 list collections. CLI database commands invoke the worker through a local daemon.
 It now also implements describe, find, count, and aggregate. Operation history is
-on by default. The worker now runs JavaScript internally; CLI script invocation
-and exports remain planned.
+on by default. CLI `run` executes attached JavaScript in the worker. CLI `export` saves bounded
+JSON/EJSON query results to new files.
 
 All workspaces are publishable with public access and fixed, aligned versions.
 The CLI uses ordinary package dependencies rather than bundling. The future
@@ -268,7 +268,7 @@ timer. Idle shutdown and stop close the worker before releasing daemon ownership
 Lifecycle commands return JSON envelopes and do not start an absent daemon.
 `list` requires an explicit environment and uses the core's alias selection rules.
 All command failures return structured errors and a nonzero exit. Operation
-scripts are attached through `run`; exports remain planned.
+scripts are attached through `run`; `export` saves bounded arrays to new files.
 
 
 ## Human setup
@@ -462,3 +462,25 @@ and never replays requests. Completed requests detach their cancellation listene
 History records a sanitized cancellation outcome for accepted requests. Cancellation
 before dispatch does not guarantee that a daemon auto-start already in progress
 was stopped; an idle daemon still follows its configured idle policy.
+
+## Bounded file exports
+
+The internal `export` operation shares the native find execution path, input
+validation, cursor cleanup and result encoding. It runs in the single worker with
+warm pools and normal query deadlines. Output paths stay in the CLI and never
+cross IPC. History records the operation once, using its worker outcome. A local
+save failure is reported separately in the CLI result.
+
+Exports default to 100 documents, allow 1-1,000, and cap the encoded array at
+512 KiB. The CLI writes the array plus one newline, then reports count, file size,
+format, limits and truncation without echoing documents. Canonical EJSON is the
+default; relaxed JSON retains the existing Int64 precision guard.
+
+The CLI validates input and reserves a mode-0600 sibling temporary file before
+starting database work. It canonicalizes the existing parent directory, refuses
+any existing destination, writes and syncs the complete result, closes it, then
+creates a hard link at the destination. Concurrent destination creation fails
+without overwrite. Cleanup removes temporary files on ordinary errors. Abrupt
+termination can leave temporary files; there is no crash-recovery scanner.
+Filesystems without hard-link support report a structured save error. Native
+Windows file permissions and lifecycle remain unvalidated.

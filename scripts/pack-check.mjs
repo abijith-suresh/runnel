@@ -119,7 +119,7 @@ try {
   });
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stderr, "");
-  assert.match(cli.stdout, /Exports are planned/);
+  assert.match(cli.stdout, /Exports save bounded JSON\/EJSON arrays/);
   const discovery = spawnSync(process.execPath, [executable, "envs"], {
     cwd: consumer,
     env: { ...process.env, RUNNEL_HOME: join(temporary, "empty-catalog") },
@@ -165,6 +165,7 @@ try {
       ["describe", "users", "-e", "unknown"],
       ["find", "users", "-e", "unknown", "--filter", "{}"],
       ["count", "users", "-e", "unknown"],
+      ["export", "users", "-e", "unknown", "--output", "packed-users.ejson"],
       ["aggregate", "users", "-e", "unknown", "--pipeline", "[]"],
       ["run", "packed-script.mjs", "-e", "unknown", "--args", "{}", "--timeout", "0"],
     ]) {
@@ -175,7 +176,7 @@ try {
     const history = daemonCli(["history"]);
     assert.equal(history.status, 0, history.stderr);
     const records = JSON.parse(history.stdout).data.entries;
-    assert.equal(records.length, 6);
+    assert.equal(records.length, 7);
     assert(records.every((entry) => entry.outcome.code === "EnvironmentNotFound"));
     assert(records.every((entry) => Object.keys(entry.targets).length === 0));
     const status = daemonCli(["daemon", "status"]);

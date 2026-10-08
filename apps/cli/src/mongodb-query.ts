@@ -8,7 +8,7 @@ export const queryMaximumDocuments = 1000;
 export const queryResultBytes = 512 * 1024;
 export type QueryOperation = Extract<
   WorkerOperation,
-  { operation: "describe" | "find" | "count" | "aggregate" }
+  { operation: "describe" | "find" | "export" | "count" | "aggregate" }
 >;
 const decodeJson = Schema.decodeUnknownSync(Schema.JsonObject);
 
@@ -204,7 +204,7 @@ export async function executeQuery(
   }
   const limit = request.limit ?? queryDocumentLimit;
   const cursor =
-    request.operation === "find"
+    request.operation !== "aggregate"
       ? collection.find(prepared.filter ?? {}, {
           limit: limit + 1,
           skip: request.skip ?? 0,
