@@ -11,7 +11,36 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { installLocal } from "./local-install.mjs";
+import { installationPath, installLocal } from "./local-install.mjs";
+
+test("installation paths reject Windows launcher metacharacters while preserving supported paths", (t) => {
+  for (const character of ["&", "%", "^", "!", "\r", "\n", "\0"])
+    assert.throws(
+      () => installationPath(`C:\\Runnel${character}Local`, "win32"),
+      /npm's \.cmd launcher/
+    );
+  assert.equal(
+    installationPath("C:\\Program Files (x86)\\Runnel #local", "win32"),
+    "C:\\Program Files (x86)\\Runnel #local"
+  );
+  assert.equal(installationPath("/tmp/runnel # % & ^ !", "linux"), "/tmp/runnel # % & ^ !");
+  if (process.platform === "win32") {
+    const parent = mkdtempSync(join(tmpdir(), "runnel-windows-path-"));
+    t.after(() => rmSync(parent, { recursive: true, force: true }));
+    for (const character of ["&", "%", "^", "!"]) {
+      const destination = join(parent, `new ${character} install`);
+      assert.throws(() => installLocal(process.cwd(), destination), /npm's \.cmd launcher/);
+      assert.equal(existsSync(destination), false);
+    }
+    const physical = join(parent, "parent & directory");
+    mkdirSync(physical);
+    const junction = join(parent, "parent-junction");
+    symlinkSync(physical, junction, "junction");
+    const destination = join(junction, "new-install");
+    assert.throws(() => installLocal(process.cwd(), destination), /npm's \.cmd launcher/);
+    assert.equal(existsSync(destination), false);
+  }
+});
 
 test("local installation refuses existing destinations without adopting or deleting them", (t) => {
   const parent = mkdtempSync(join(tmpdir(), "runnel-install-policy-"));

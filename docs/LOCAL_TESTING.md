@@ -44,6 +44,14 @@ directories. A failed install removes its newly created directory; cleanup
 failures are reported. It prints JSON with the installation, executable, bin
 directory and version. There is no global install or shell-profile edit.
 
+Windows installation paths cannot contain `&`, `%`, `^`, `!` or control
+characters, including in their resolved parent directory. npm's generated
+[Windows launcher](https://github.com/npm/cmd-shim/blob/v8.0.0/lib/index.js)
+assigns its directory without quoting it. These characters can break command
+execution. The installer rejects those paths before creating the installation
+or running npm pack/install. Spaces, `#` and parentheses are supported; Linux
+accepts the punctuation used in the packaging test.
+
 Before switching versions, stop the old daemon with `runnel daemon stop`.
 Install the new build into another new directory and update PATH. The installed
 build stays unchanged when the checkout is edited or rebuilt. Catalogs and OS

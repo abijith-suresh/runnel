@@ -1,16 +1,39 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, posix, resolve, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runNpm } from "./npm-command.mjs";
 import { packages, validateRepository } from "./release-policy.mjs";
 
+/** npm's Windows .cmd shim uses an unquoted SET dp0=%~dp0. */
+export function installationPath(destination, platform = process.platform) {
+  const path = platform === "win32" ? win32 : posix;
+  if (typeof destination !== "string" || !path.isAbsolute(destination))
+    throw new Error("Supply an absolute path to a new installation directory.");
+  const directory = path.resolve(destination);
+  if (
+    platform === "win32" &&
+    (/[&%^!]/.test(directory) || [...directory].some((character) => character.charCodeAt(0) < 32))
+  )
+    throw new Error(
+      "Choose a Windows installation path without &, %, ^, ! or control characters. npm's .cmd launcher cannot reliably use them."
+    );
+  return directory;
+}
+
 /** Install all public workspace artifacts together into a newly owned directory. */
 export function installLocal(root, destination) {
-  if (typeof destination !== "string" || !isAbsolute(destination))
-    throw new Error("Supply an absolute path to a new installation directory.");
+  let directory = installationPath(destination);
   const { manifests } = validateRepository(root);
-  const directory = resolve(destination);
+  try {
+    directory = join(realpathSync(dirname(directory)), basename(directory));
+  } catch {
+    throw new Error(
+      "Cannot resolve the installation parent. Its parent must exist and be accessible."
+    );
+  }
+  // Check physical parents too, including junctions and Windows short path aliases.
+  directory = installationPath(directory);
   try {
     // Outside the rollback scope: an existing file, directory or link is never ours to remove.
     mkdirSync(directory, { mode: 0o700 });

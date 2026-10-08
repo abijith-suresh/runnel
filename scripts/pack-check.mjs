@@ -61,7 +61,10 @@ try {
       );
   }
   // Exercise the same persistent installer users run, including shell punctuation in its path.
-  const consumer = join(temporary, "consumer install # % &");
+  const consumer = join(
+    temporary,
+    process.platform === "win32" ? "consumer install #local" : "consumer install # % &"
+  );
   installLocal(root, consumer);
   // Retained tarballs and lockfile must support rebuilding the local install without a registry release.
   runNpm(["ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"], consumer);

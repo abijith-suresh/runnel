@@ -54,6 +54,8 @@ repository credential or release workflow is required.
   this installer, including the executable from a path with spaces and punctuation.
   Existing destinations are refused and failed installs remove only their own
   partial directory. The guide covers session PATH setup on Linux and Windows.
+  Windows paths reject npm launcher metacharacters before any install work;
+  spaces and `#` remain covered in native packaging CI.
 - A separate installed-CLI Linux PTY check passed hidden setup input, database
   discovery, manual alias registration, native credentials, queries, declined
   saving, and Ctrl+C during setup, with fixture cleanup.
