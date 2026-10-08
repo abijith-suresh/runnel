@@ -625,3 +625,69 @@ test("BSON snapshots preserve signed Int64 edges and reject payloads that EJSON 
     await f.cleanup();
   }
 });
+
+test("native BSON wrappers validate payload types and invalid dates cannot produce unusable EJSON", async () => {
+  const f = await fixture("export default async()=>true;");
+  const worker = createWorkerSupervisor(f.directory, {
+    entrypoint: new URL("./fixtures/script-worker.mjs", import.meta.url),
+  });
+  try {
+    for (const [name, body] of [
+      [
+        "symbol-accessor",
+        "export default async({bson})=>new bson.BSONSymbol({get value(){return new class {constructor(){this.private='class-data';}}}});",
+      ],
+      [
+        "symbol-class",
+        "export default async({bson})=>new bson.BSONSymbol(new class {constructor(){this.private='class-data';}});",
+      ],
+      [
+        "regexp-payload",
+        "export default async({bson})=>{const value=new bson.BSONRegExp('a');value.pattern={private:'class-data'};return value;};",
+      ],
+      ["code-payload", "export default async({bson})=>new bson.Code('code','class-data');"],
+      ["date", "export default async()=>new Date(NaN);"],
+      ["uuid-bytes", "export default async({bson})=>new bson.Binary(new Uint8Array([1,2,3]),4);"],
+      ["code-scope-date", "export default async({bson})=>new bson.Code('code',new Date(0));"],
+    ]) {
+      const path = join(f.directory, name! + ".mjs");
+      await writeFile(path, body!);
+      for (const format of ["json", "ejson"] as const)
+        for (const execute of [
+          (request: ScriptOperation) => f.operations.execute(request),
+          (request: ScriptOperation) => worker.execute(request),
+        ]) {
+          const result = await execute({ ...f.request, path, format });
+          assert.equal(code(result), "ResultEncodingFailed");
+          assert(!JSON.stringify(result).includes("class-data"));
+        }
+    }
+    const valid = join(f.directory, "valid-wrappers.mjs");
+    await writeFile(
+      valid,
+      "export default async({bson})=>({symbol:new bson.BSONSymbol('literal'),regex:new bson.BSONRegExp('^a','i'),decimal:bson.Decimal128.fromString('1.25'),binary:new bson.Binary(new Uint8Array([1,2,3])),uuid:new bson.UUID('00000000-0000-0000-0000-000000000001'),oid:new bson.ObjectId('000000000000000000000001'),min:new bson.MinKey(),max:new bson.MaxKey(),date:new Date(0)});"
+    );
+    for (const format of ["json", "ejson"] as const) {
+      const result = Schema.decodeUnknownSync(Schema.JsonObject)(
+        value(await worker.execute({ ...f.request, path: valid, format }))
+      );
+      assert.deepEqual(result["symbol"], { $symbol: "literal" });
+      assert.deepEqual(result["regex"], { $regularExpression: { pattern: "^a", options: "i" } });
+      assert.deepEqual(result["decimal"], { $numberDecimal: "1.25" });
+      assert.deepEqual(result["binary"], { $binary: { base64: "AQID", subType: "00" } });
+      assert.deepEqual(result["uuid"], {
+        $binary: { base64: "AAAAAAAAAAAAAAAAAAAAAQ==", subType: "04" },
+      });
+      assert.deepEqual(result["oid"], { $oid: "000000000000000000000001" });
+      assert.deepEqual(result["min"], { $minKey: 1 });
+      assert.deepEqual(result["max"], { $maxKey: 1 });
+      assert.deepEqual(
+        result["date"],
+        format === "json" ? { $date: "1970-01-01T00:00:00Z" } : { $date: { $numberLong: "0" } }
+      );
+    }
+  } finally {
+    await worker.stop();
+    await f.cleanup();
+  }
+});

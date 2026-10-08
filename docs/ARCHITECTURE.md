@@ -419,8 +419,8 @@ relaxed output, and carry a 512 KiB limit. An undefined return becomes null. Liv
 handles, accessor properties, functions, cyclic values, and unsupported class
 instances fail with
 `ResultEncodingFailed`; oversized results fail with `ResultTooLarge`. Scripts
-choose their own bounded result. Invalid Int32/Int64 payloads and unsigned Long values beyond the signed BSON
-range fail rather than being coerced. The runner snapshots plain data and native
+choose their own bounded result. Invalid BSON payloads, invalid dates, and unsigned Long values beyond the signed
+BSON range fail rather than being coerced. The runner snapshots plain data and native
 BSON values before encoding so
 validation and serialization use the same values. It does not silently truncate
 arbitrary values. Awaited failures use fixed application messages even if a
@@ -432,8 +432,10 @@ tracing each driver call or secondary connect.
 
 The active deadline includes target resolution, module loading, and execution;
 queue wait is separate. The runner aborts `signal` at the requested deadline and
-waits for the script to settle. The supervisor terminates uncooperative work after
-100 ms of cleanup time and discards queued requests without replay. A deadline of
+waits for the script to settle. After 100 ms of cleanup time, the supervisor fails active and queued requests
+without replay and sends SIGTERM. Its process shutdown grace allows up to another
+second before SIGKILL. New work waits for the old worker to exit before dispatch.
+A timeout result does not prove that database writes were rolled back. A deadline of
 zero disables both timers. Shutdown also aborts the signal. Scripts must await
 their work, pass the signal to operations that support it, and clean up their own
 resources. A completed invocation disables later `connect` calls but cannot

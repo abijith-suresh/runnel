@@ -148,23 +148,93 @@ function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
           if (typeof value !== "number") throw new Error("Invalid BSON double");
           return new BSON.Double(value);
         }
-        if (item instanceof BSON.Code)
-          return new BSON.Code(
-            data("code") as string,
-            data("scope") == null ? undefined : (snapshot(data("scope")) as Document)
-          );
-        if (item instanceof BSON.DBRef)
+        if (item instanceof BSON.Code) {
+          const code = data("code"),
+            scope = data("scope");
+          if (
+            typeof code !== "string" ||
+            (scope != null &&
+              (typeof scope !== "object" ||
+                ![Object.prototype, null].includes(Object.getPrototypeOf(scope))))
+          )
+            throw new Error("Invalid BSON code");
+          return new BSON.Code(code, scope == null ? undefined : (snapshot(scope) as Document));
+        }
+        if (item instanceof BSON.DBRef) {
+          const collection = data("collection"),
+            db = data("db"),
+            fields = data("fields");
+          if (
+            typeof collection !== "string" ||
+            (db !== undefined && typeof db !== "string") ||
+            fields === null ||
+            typeof fields !== "object" ||
+            ![Object.prototype, null].includes(Object.getPrototypeOf(fields))
+          )
+            throw new Error("Invalid BSON reference");
           return new BSON.DBRef(
-            data("collection") as string,
+            collection,
             snapshot(data("oid")) as BSON.ObjectId,
-            data("db") as string | undefined,
-            snapshot(data("fields")) as Document
+            db,
+            snapshot(fields) as Document
           );
-        return BSON.EJSON.deserialize(BSON.EJSON.serialize(item, { relaxed: false }), {
-          relaxed: false,
-        });
+        }
+        if (item instanceof BSON.BSONSymbol) {
+          const value = data("value");
+          if (typeof value !== "string") throw new Error("Invalid BSON symbol");
+          return new BSON.BSONSymbol(value);
+        }
+        if (item instanceof BSON.BSONRegExp) {
+          const pattern = data("pattern"),
+            options = data("options");
+          if (typeof pattern !== "string" || typeof options !== "string")
+            throw new Error("Invalid BSON regular expression");
+          return new BSON.BSONRegExp(pattern, options);
+        }
+        if (item instanceof BSON.Binary) {
+          const bytes = data("buffer"),
+            subtype = data("sub_type"),
+            position = data("position");
+          if (
+            !(bytes instanceof Uint8Array) ||
+            !ArrayBuffer.isView(bytes) ||
+            typeof subtype !== "number" ||
+            !Number.isInteger(subtype) ||
+            subtype < 0 ||
+            subtype > 255 ||
+            typeof position !== "number" ||
+            !Number.isInteger(position) ||
+            position < 0 ||
+            position > bytes.byteLength
+          )
+            throw new Error("Invalid BSON binary");
+          if ((subtype === 4 && position !== 16) || (item instanceof BSON.UUID && subtype !== 4))
+            throw new Error("Invalid UUID");
+          return new BSON.Binary(Buffer.from(bytes).subarray(0, position), subtype);
+        }
+        if (item instanceof BSON.Decimal128) {
+          const bytes = data("bytes");
+          if (
+            !(bytes instanceof Uint8Array) ||
+            !ArrayBuffer.isView(bytes) ||
+            bytes.byteLength !== 16
+          )
+            throw new Error("Invalid BSON decimal");
+          return new BSON.Decimal128(Buffer.from(bytes));
+        }
+        if (item instanceof BSON.ObjectId) {
+          for (const descriptor of Object.values(descriptors)) snapshot(descriptor.value);
+          return new BSON.ObjectId(BSON.ObjectId.prototype.toHexString.call(item));
+        }
+        if (item instanceof BSON.MinKey) return new BSON.MinKey();
+        if (item instanceof BSON.MaxKey) return new BSON.MaxKey();
+        throw new Error("Unsupported BSON result");
       }
-      if (prototype === Date.prototype) return new Date((item as Date).getTime());
+      if (prototype === Date.prototype) {
+        const millis = Date.prototype.getTime.call(item);
+        if (!Number.isFinite(millis)) throw new Error("Invalid date");
+        return new Date(millis);
+      }
       if (prototype === RegExp.prototype)
         return new RegExp((item as RegExp).source, (item as RegExp).flags);
       if (Buffer.isBuffer(item)) return Buffer.from(item);
