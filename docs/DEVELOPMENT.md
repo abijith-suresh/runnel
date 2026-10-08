@@ -30,8 +30,11 @@ repository credential or release workflow is required.
   structured errors. Inputs support inline values, files, and stdin.
 - Implemented: bounded private operation history, offline inspection, a catalog
   opt-out setting, and sanitized outcomes.
-- Planned: attached JavaScript scripts with native `db`, cross-environment
-  `connect`, `args`, `signal`, and `bson`, deadlines, reset behavior, and exports.
+- Implemented internally: JavaScript execution in the persistent worker with native
+  `db`, cross-environment `connect`, JSON `args`, `signal`, and `bson`; bounded
+  JSON/EJSON results, explicit deadlines, and entry-change reset requirements.
+- Planned: attached CLI script invocation, file/stdin arguments, cancellation,
+  catalog deadline defaults, and exports.
 - Planned: installed-artifact integration tests, Windows checks, and a local
   testing guide with commands that have been run against synthetic fixtures.
 

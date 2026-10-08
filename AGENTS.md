@@ -61,5 +61,7 @@ work prevent idle shutdown. Human `setup` now registers new connections and alia
 with hidden URI input, worker-owned discovery, and OS credential storage. It never
 overwrites configured names. The worker now executes `describe`, `find`, `count`,
 and `aggregate` with bounded JSON/EJSON results. Operation history is on by default;
-scripts and exports remain planned. Keep this status and the owning documents
+the internal script runner now uses real native handles, cross-environment connects,
+BSON helpers, bounded results, and explicit deadlines. CLI script invocation and
+exports remain planned. Keep this status and the owning documents
 accurate as each slice lands.

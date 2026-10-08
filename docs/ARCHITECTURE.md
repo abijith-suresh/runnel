@@ -25,7 +25,8 @@ entry point still exports an empty module. The executable supports help/version
 and offline catalog discovery. Internal worker operations inspect connections and
 list collections. CLI database commands invoke the worker through a local daemon.
 It now also implements describe, find, count, and aggregate. Operation history is
-on by default. Scripts and exports remain planned.
+on by default. The worker now runs JavaScript internally; CLI script invocation
+and exports remain planned.
 
 All workspaces are publishable with public access and fixed, aligned versions.
 The CLI uses ordinary package dependencies rather than bundling. The future
@@ -119,7 +120,7 @@ characters on either platform and use at most 63 UTF-8 bytes, following
 [MongoDB's naming limits](https://www.mongodb.com/docs/manual/reference/limits/#naming-restrictions).
 Settings are nonnegative integer milliseconds bounded by Node's timer range.
 The daemon reads `idleTimeoutMs` at startup; zero disables idle shutdown.
-`scriptTimeoutMs` remains reserved for the planned script runner.
+`scriptTimeoutMs` remains reserved for the planned CLI script deadline default.
 
 `envs`, `connections -e <name>`, and `databases -e <name>` return sorted configured
 names or mappings in JSON envelopes. Success is `{ "ok": true, "data": ... }`;
@@ -186,7 +187,9 @@ The supervisor retains one worker and dispatches one application operation at a
 time. At most 32 additional operations can wait. It snapshots requests before
 queueing them. Startup has a 10-second deadline. Internal operations default to a
 15-second active deadline; queue waiting does not consume it, and zero disables
-it. These are worker infrastructure defaults, not the planned script deadline.
+it. Script requests carry an explicit active deadline; zero disables it. The
+supervisor adds 100 ms for cooperative cleanup before terminating a script worker.
+The planned CLI will apply the catalog's five-minute script default.
 Reset, stop, a crash, and protocol failure discard active and queued requests
 without replay. A timed-out active request reports `OperationTimedOut`; its queued
 requests report `WorkerRestarted`. Later requests may start a fresh worker after
@@ -203,7 +206,7 @@ minimum pool size zero, and 10-second connection/server-selection timeouts.
 Changing the stored URI closes and replaces its client. Failed closes remain
 tracked for a later replacement or shutdown attempt. Shutdown rejects new
 acquisition and removes clients only after successful close. Pool creation, replacement,
-and shutdown serialize even if future scripts connect in parallel. Only acquisition
+and shutdown serialize even when scripts connect in parallel. Only acquisition
 serializes; operations on acquired native handles can run in parallel.
 
 The initial internal operations remain available. `inspect` lists databases accessible to
@@ -216,7 +219,8 @@ structured categories. Other driver failures use a generic error; raw messages,
 stacks, URIs, and document-bearing diagnostics never cross IPC.
 
 Human `setup` invokes connection inspection through the daemon. CLI `list` now invokes
-the collection-listing operation. History is recorded by the daemon. Script execution remains planned.
+the collection-listing operation. History is recorded by the daemon. Scripts also
+execute internally in the worker; CLI invocation remains planned.
 The worker IPC format is internal. Native Windows process behavior has not been
 validated on Windows.
 
@@ -340,8 +344,8 @@ arrive as BSON numeric wrappers; classification normalizes them before mapping
 permission, authentication, invalid-query, missing-collection, and timeout errors.
 
 Driver cursor operations have a 10-second deadline and run within the supervisor's
-15-second active deadline. Queue wait time is separate. Export and script deadlines
-remain future work. Operation history is on by default. Standard verification uses synthetic
+15-second active deadline. Queue wait time is separate. Internal script requests
+have their own explicit deadline; CLI script and export options remain future work. Operation history is on by default. Standard verification uses synthetic
 handles and inputs; separate WSL probes exercise these commands against Podman
 MongoDB with an isolated catalog and keyring entry. Native Windows query operation
 has not been validated.
@@ -382,3 +386,62 @@ This history is best effort and is not an audit log: hard process termination or
 machine failure may lose an entry, and an error records the application outcome,
 not proof that a writing pipeline had no side effects. Native Windows filesystem
 permissions and history behavior have not been validated.
+
+
+## Internal JavaScript runner
+
+The worker accepts internal `run` requests with an absolute JavaScript entry path,
+plain JSON arguments, an output format, and an explicit deadline. The executable
+still has no `run` command. CLI file/stdin arguments, cancellation on disconnect,
+and `settings.scriptTimeoutMs` defaults are the next slice.
+
+A module default-exports a function, normally async, receiving
+`{ db, args, connect, signal, bson }`. `db` is an actual worker-local driver `Db`.
+`connect({ env, db })` uses the same catalog, credential lookup, core selection,
+and connection pools as built-ins. The environment is explicit; a sole database
+alias can be inferred. Parallel connects within a script remain one application
+operation. `bson` is the driver's BSON namespace, so scripts need no separate
+driver installation to construct identifiers and BSON values. Neither native
+handles nor helper functions cross IPC.
+
+Arguments are plain JSON up to 256 KiB, with finite, safe numeric literals.
+EJSON-looking argument keys remain data. The runner reads regular `.mjs` or `.js`
+entry files up to 1 MiB, resolves their real paths, and imports their file URLs
+using Node's native module loader. It hashes the entry bytes on each invocation.
+A previously imported entry whose bytes change fails with `ScriptChanged` before
+calling the cached function. An edit during import also requires reset. Failed
+imports remain subject to Node's module cache; reset after fixing them. Imported
+dependency-only edits require explicit reset. Reset starts a fresh worker and
+clears both modules and connection pools.
+
+Results accept JSON/BSON values, use the query encoder's canonical EJSON or safe
+relaxed output, and carry a 512 KiB limit. An undefined return becomes null. Live
+handles, accessor properties, functions, cyclic values, and unsupported class
+instances fail with
+`ResultEncodingFailed`; oversized results fail with `ResultTooLarge`. Scripts
+choose their own bounded result. Invalid BSON payloads, invalid dates, and unsigned Long values beyond the signed
+BSON range fail rather than being coerced. The runner snapshots plain data and native
+BSON values before encoding. JavaScript integers outside the safe integer range
+use BSON Double, preserving their actual IEEE754 values instead of inferring Int64.
+Safe integers keep the query encoder's integer representation. Snapshotting means
+validation and serialization use the same values. It does not silently truncate
+arbitrary values. Buffers become BSON Binary. Native byte copies reject modified
+payload properties and avoid script-owned coercion methods. Awaited failures use
+fixed application messages even if a script modifies a caught error, with useful driver
+permission and connection categories. Script bodies, arguments, filenames, and
+raw error messages are excluded from application errors and operation history.
+The recorder stores one `run` entry for the primary configured target, rather than
+tracing each driver call or secondary connect.
+
+The active deadline includes target resolution, module loading, and execution;
+queue wait is separate. The runner aborts `signal` at the requested deadline and
+waits for the script to settle. After 100 ms of cleanup time, the supervisor fails active and queued requests
+without replay and sends SIGTERM. Its process shutdown grace allows up to another
+second before SIGKILL. New work waits for the old worker to exit before dispatch.
+A timeout result does not prove that database writes were rolled back. A deadline of
+zero disables both timers. Shutdown also aborts the signal. Scripts must await
+their work, pass the signal to operations that support it, and clean up their own
+resources. A completed invocation disables later `connect` calls but cannot
+revoke a native handle retained by arbitrary JavaScript. Scripts run with the
+worker user's OS and database permissions. No driver proxy or script sandbox is
+introduced. Native Windows script execution remains unvalidated.

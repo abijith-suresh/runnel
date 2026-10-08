@@ -11,6 +11,17 @@ const limit = Schema.optionalKey(
 );
 const input = Schema.optionalKey(Schema.String);
 const requestSchema = Schema.Union([
+  Schema.Struct({
+    operation: Schema.Literal("run"),
+    ...target,
+    path: Schema.String.check(Schema.isMaxLength(32768)),
+    args: Schema.optionalKey(Schema.String),
+    format,
+    timeoutMs: Schema.Number.check(
+      Schema.isInt(),
+      Schema.isBetween({ minimum: 0, maximum: 2147483547 })
+    ),
+  }),
   Schema.Struct({ operation: Schema.Literal("inspect"), uri: Schema.String }),
   Schema.Struct({
     operation: Schema.Literal("list"),
@@ -69,6 +80,13 @@ export const resultSchema = Schema.Union([
   Schema.Struct({
     ok: Schema.Literal(true),
     data: Schema.Union([
+      Schema.Struct({
+        env: text,
+        db: text,
+        format: Schema.Literals(["json", "ejson"]),
+        value: Schema.Json,
+        limits: Schema.Struct({ bytes: Schema.Literal(512 * 1024) }),
+      }),
       Schema.Struct({ databases: Schema.Array(text), truncated: Schema.Boolean }),
       Schema.Struct({
         env: text,

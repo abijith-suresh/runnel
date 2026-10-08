@@ -13,7 +13,7 @@ export type QueryOperation = Extract<
 const decodeJson = Schema.decodeUnknownSync(Schema.JsonObject);
 
 /** Canonical EJSON preserves BSON types. Relaxed JSON refuses unsafe Int64 conversion. */
-function encode(document: Document, format: "json" | "ejson"): Schema.JsonObject {
+export function encodeDocument(document: Document, format: "json" | "ejson"): Schema.JsonObject {
   const checkLongs = (value: unknown): void => {
     if (value instanceof BSON.Long && !(value instanceof BSON.Timestamp)) {
       const number = value.toBigInt();
@@ -66,7 +66,7 @@ async function collect(
         reason = "documents";
         break;
       }
-      const document = encode(item, format);
+      const document = encodeDocument(item, format);
       const size = Buffer.byteLength(JSON.stringify(document), "utf8") + (documents.length ? 1 : 0);
       if (bytes + size > budget) {
         reason = "bytes";
@@ -144,7 +144,7 @@ export async function executeQuery(
         count =
           integer >= BigInt(Number.MIN_SAFE_INTEGER) && integer <= BigInt(Number.MAX_SAFE_INTEGER)
             ? Number(integer)
-            : (encode({ count: value }, format)["count"] as { $numberLong: string });
+            : (encodeDocument({ count: value }, format)["count"] as { $numberLong: string });
       } else {
         count =
           value instanceof BSON.Int32 || value instanceof BSON.Double
@@ -171,7 +171,7 @@ export async function executeQuery(
       const first = await metadataCursor.next();
       if (!first)
         throw new QueryError("CollectionNotFound", "The named collection does not exist.");
-      metadata = encode(first, format);
+      metadata = encodeDocument(first, format);
     } finally {
       await metadataCursor.close();
     }
