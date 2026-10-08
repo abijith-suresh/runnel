@@ -20,6 +20,7 @@ runnel find users -e local -d accounts --filter-file filter.json
 runnel count users -e local -d accounts
 runnel aggregate users -e local -d accounts --pipeline-file pipeline.json
 runnel run compare.mjs -e local -d accounts --args-file args.json --timeout 5m
+runnel export users -e local -d accounts --output users.ejson
 runnel history
 runnel daemon status
 runnel daemon reset
@@ -49,7 +50,7 @@ commands never start a missing daemon. The daemon shuts down after five minutes
 of inactivity by default; active and queued work prevent shutdown. Stop the old
 daemon after installing another Runnel version before running database work.
 
-Exports remain planned. The library entry point still exports an empty
+The library entry point still exports an empty
 module; there is no public CLI composition API.
 
 For local development, build at the repository root and invoke the compiled CLI.
@@ -151,7 +152,7 @@ Aggregation pipelines run unchanged under the database user's permissions,
 including stages that write data. `--limit` bounds returned documents and does
 not bound pipeline side effects. Runnel adds no separate read/write approval gate.
 Errors are structured and exit nonzero without dumping query values or driver
-messages. Exports remain planned.
+messages. Exports use the same query execution and encoding rules.
 
 ## JavaScript scripts
 
@@ -225,3 +226,38 @@ stderr. The database result and exit status stay intact. A corrupt history file
 is preserved for inspection. This is lightweight local history; a hard daemon
 kill or machine failure can leave an operation unrecorded, and an error outcome
 does not establish whether a writing pipeline completed before interruption.
+
+## Exports
+
+```sh
+runnel export users -e local -d accounts --output users.ejson
+runnel export users -e local --filter-file filter.json --sort '{"_id":1}' --limit 500 --output selected.ejson
+runnel export users -e local --format json --output users.json
+```
+
+`export` uses the worker's find path. Filter, projection, sort, skip and limit
+options work as they do for `find`. An environment is required; the database alias
+is inferred only when the environment has exactly one. The default format is
+canonical EJSON. JSON uses the same BSON conversion and precision checks as query
+results. The filename extension does not choose the format.
+
+The file contains one JSON/EJSON array with a trailing newline. Stdout contains a
+JSON envelope with the resolved path, document count, file bytes, limits and
+truncation status, without returned documents. Default and maximum document caps
+are 100 and 1,000. The array is bounded to 512 KiB, plus one byte for its newline.
+Truncation is a successful bounded export; check `truncated` and `truncationReason`
+before treating the file as complete. Exports do not promise a full database
+backup or stable pagination while documents change.
+
+`--output` is required and must name a new file in an existing directory. Relative
+paths resolve from the CLI working directory. Existing files, directories and
+links are refused. A complete sibling temporary file is synced, closed and linked
+to the destination without replacing a file created concurrently. This requires
+filesystem hard-link support. Ordinary failures remove the temporary file and
+leave the destination absent. Abrupt process termination can leave a private
+`.runnel-export-*.tmp` file beside the destination. Linux files use mode 0600;
+Windows relies on directory ACLs and has not yet been validated natively.
+
+History records one `export` database operation without the filename, filter or
+returned documents. Its outcome describes worker execution. A subsequent local
+file-save failure is reported by the CLI and does not rewrite that history entry.

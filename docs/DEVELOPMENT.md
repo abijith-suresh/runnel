@@ -35,7 +35,8 @@ repository credential or release workflow is required.
   JSON/EJSON results, explicit deadlines, and entry-change reset requirements.
   Arguments support inline/file/stdin JSON. Catalog deadline defaults, duration
   overrides, zero deadlines, and attached cancellation are implemented.
-- Planned: bounded JSON/EJSON exports.
+- Implemented: bounded JSON/EJSON exports, query options, new-file creation and
+  explicit truncation metadata.
 - Planned: installed-artifact integration tests, Windows checks, and a local
   testing guide with commands that have been run against synthetic fixtures.
 

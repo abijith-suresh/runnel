@@ -8,10 +8,9 @@ and credential storage helpers. Internal worker supervision, MongoDB pools,
 connection inspection, and collection listing are also implemented. CLI `list`
 now starts a daemon, and daemon lifecycle commands are available. Human `setup`
 registers new connections and named aliases. `describe`, `find`, `count`, and
-`aggregate` are implemented with bounded JSON/EJSON output. History is on by default.
-Attached CLI JavaScript invocation is implemented. Exports
-and the remaining product behavior below remain
-**planned**. The document preserves
+`aggregate` are implemented with bounded JSON/EJSON output. `export` saves bounded
+JSON/EJSON arrays. History is on by default. Attached CLI JavaScript invocation is
+implemented. Remaining product behavior below is **planned**. The document preserves
 the decisions from the initial discussion so later tasks can build from them
 without reconstructing it.
 
@@ -127,16 +126,15 @@ many driver calls; history is not an audit log for each of those calls.
 
 Query defaults and BSON behavior are now documented in
 [the current architecture](ARCHITECTURE.md#mongodb-query-commands). History defaults
-and retention are documented there as well. Export limits remain implementation
-decisions.
+and retention are documented there as well. Export defaults and file behavior
+are documented in its export section.
 
 ## Command examples
 
 `envs`, `connections`, and `databases` run offline. `list` and the three daemon
 lifecycle commands also run now. `setup` is implemented with an interactive terminal.
-`describe`, `find`, `count`, `aggregate`, and `run` also run now. The export
-example below remains planned. History is available through offline `runnel history`
-inspection.
+`describe`, `find`, `count`, `aggregate`, `run`, and `export` also run now.
+History is available through offline `runnel history` inspection.
 
 ```sh
 runnel setup

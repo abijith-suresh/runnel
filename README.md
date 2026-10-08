@@ -16,7 +16,7 @@ its lifecycle. `setup` prompts for a hidden URI, discovers databases, and
 registers named aliases with credentials in OS storage. `describe`, `find`, `count`,
 and `aggregate` now return bounded JSON/EJSON results. Local operation history is
 on by default. `run` executes attached JavaScript with native database handles,
-JSON arguments, deadline options, and cancellation without replay. Exports and MCP remain planned. See
+JSON arguments, deadline options, and cancellation without replay. `export` saves bounded JSON/EJSON arrays to new files. MCP remains planned. See
 [CLI usage](apps/cli/README.md) for implemented commands and
 [the development milestone](docs/DEVELOPMENT.md) for ongoing work.
 

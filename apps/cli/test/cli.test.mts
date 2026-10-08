@@ -25,7 +25,7 @@ test("help and no arguments print available options on stdout", () => {
     assert.match(result.stdout, /runnel daemon status/);
     assert.match(result.stdout, /runnel setup/);
     assert.match(result.stdout, /runnel find <collection>/);
-    assert.match(result.stdout, /Exports are planned/);
+    assert.match(result.stdout, /Exports save bounded JSON\/EJSON arrays/);
   }
 });
 

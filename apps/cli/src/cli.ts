@@ -24,6 +24,7 @@ Usage:
   runnel count <collection> -e <environment> [--filter-file <file>]
   runnel aggregate <collection> -e <environment> --pipeline-file <file> [--limit <n>]
   runnel run <script.mjs> -e <environment> [-d <database>] [--args-file <file>] [--timeout 5m]
+  runnel export <collection> -e <environment> --output <file> [--format ejson] [--limit <n>]
   runnel daemon status | reset | stop
 
 Options:
@@ -34,22 +35,23 @@ Options:
 
 Query options:
   --filter, --filter-file          JSON/EJSON filter; file - reads stdin
-  --projection, --projection-file  Find projection
-  --sort, --sort-file              Find sort object with 1/-1 directions
+  --projection, --projection-file  Find/export projection
+  --sort, --sort-file              Find/export sort object with 1/-1 directions
   --pipeline, --pipeline-file      Aggregate pipeline; file - reads stdin
-  --limit                         Find/aggregate result cap, default 100, maximum 1000
-  --skip                          Find offset, default 0
+  --limit                         Find/aggregate/export result cap, default 100, maximum 1000
+  --skip                          Find/export offset, default 0
   --format                        ejson (default) or relaxed json
+  --output                        Export destination; must be a new file
 
 Script options:
   --args, --args-file  Plain JSON arguments; file - reads stdin, default {}
   --timeout           Whole ms/s/m/h duration or 0 to disable; catalog default is 5m
 
 Scripts stay attached. Interrupting the CLI stops active script work without replay.
-Exports are planned.
+Exports save bounded JSON/EJSON arrays to new files with --output.
 `;
 
-const queryCommands = ["describe", "find", "count", "aggregate"];
+const queryCommands = ["describe", "find", "count", "aggregate", "export"];
 const queryOptions = [
   "filter",
   "filter-file",
@@ -64,21 +66,21 @@ const queryOptions = [
   "format",
 ] as const;
 const optionCommands: Record<(typeof queryOptions)[number], readonly string[]> = {
-  filter: ["find", "count"],
-  "filter-file": ["find", "count"],
-  projection: ["find"],
-  "projection-file": ["find"],
-  sort: ["find"],
-  "sort-file": ["find"],
+  filter: ["find", "count", "export"],
+  "filter-file": ["find", "count", "export"],
+  projection: ["find", "export"],
+  "projection-file": ["find", "export"],
+  sort: ["find", "export"],
+  "sort-file": ["find", "export"],
   pipeline: ["aggregate"],
   "pipeline-file": ["aggregate"],
-  limit: ["find", "aggregate"],
-  skip: ["find"],
+  limit: ["find", "aggregate", "export"],
+  skip: ["find", "export"],
   format: [...queryCommands, "run"],
 };
 const scriptOptions = ["args", "args-file", "timeout"] as const;
 async function main(): Promise<number> {
-  let values: QueryValues & ScriptValues & { help?: boolean; version?: boolean };
+  let values: QueryValues & ScriptValues & { help?: boolean; version?: boolean; output?: string };
   let positionals: string[];
   try {
     const parsed = parseArgs({
@@ -87,6 +89,7 @@ async function main(): Promise<number> {
         version: { type: "boolean", short: "v" },
         env: { type: "string", short: "e" },
         db: { type: "string", short: "d" },
+        output: { type: "string" },
         ...Object.fromEntries(queryOptions.map((key) => [key, { type: "string" }])),
         ...Object.fromEntries(scriptOptions.map((key) => [key, { type: "string" }])),
       },
@@ -122,6 +125,7 @@ async function main(): Promise<number> {
       queryOptions.some(
         (key) => values[key] !== undefined && !optionCommands[key].includes(command ?? "")
       ) ||
+      (command !== "export" && values.output !== undefined) ||
       (command !== "run" && scriptOptions.some((key) => values[key] !== undefined)) ||
       (values.version && command !== undefined)
     )
@@ -219,7 +223,7 @@ async function main(): Promise<number> {
       import("./catalog.js"),
       import("./daemon-client.js"),
     ]);
-    let result: DaemonResponse;
+    let result: DaemonResponse | import("./export-command.js").ExportResponse;
     try {
       result =
         command === "daemon"
@@ -232,18 +236,24 @@ async function main(): Promise<number> {
                   message: "Specify an environment with -e or --env.",
                 },
               }
-            : command !== "list"
-              ? await (await import("./query-command.js")).runQueryCommand(
+            : command === "export"
+              ? await (await import("./export-command.js")).runExportCommand(
                   catalogDirectory(),
-                  command as QueryCommand,
                   positionals[1] ?? "",
                   values
                 )
-              : await executeWithDaemon(catalogDirectory(), {
-                  operation: "list",
-                  env: values.env,
-                  ...(values.db === undefined ? {} : { db: values.db }),
-                });
+              : command !== "list"
+                ? await (await import("./query-command.js")).runQueryCommand(
+                    catalogDirectory(),
+                    command as QueryCommand,
+                    positionals[1] ?? "",
+                    values
+                  )
+                : await executeWithDaemon(catalogDirectory(), {
+                    operation: "list",
+                    env: values.env,
+                    ...(values.db === undefined ? {} : { db: values.db }),
+                  });
     } catch {
       result = {
         ok: false,

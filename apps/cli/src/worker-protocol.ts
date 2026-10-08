@@ -37,7 +37,7 @@ const requestSchema = Schema.Union([
     filter: input,
   }),
   Schema.Struct({
-    operation: Schema.Literal("find"),
+    operation: Schema.Literals(["find", "export"]),
     ...target,
     collection,
     format,
