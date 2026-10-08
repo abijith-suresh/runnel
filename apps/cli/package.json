@@ -1,6 +1,6 @@
 {
   "name": "@abijith-suresh/runnel",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Named MongoDB access for agents, with human setup and a persistent local worker.",
   "type": "module",
   "license": "MIT",
@@ -40,8 +40,8 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@abijith-suresh/runnel-core": "0.0.5",
-    "@abijith-suresh/runnel-mongodb": "0.0.5",
+    "@abijith-suresh/runnel-core": "0.0.6",
+    "@abijith-suresh/runnel-mongodb": "0.0.6",
     "@napi-rs/keyring": "2.1.0",
     "effect": "4.0.1",
     "mongodb": "7.7.0",
