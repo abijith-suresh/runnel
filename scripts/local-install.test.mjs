@@ -73,7 +73,14 @@ test("local installation rejects relative paths and missing parents", (t) => {
 });
 
 test("a failed npm invocation removes only the newly created installation", (t) => {
-  const parent = mkdtempSync(join(tmpdir(), "runnel install rollback # % & "));
+  const parent = mkdtempSync(
+    join(
+      tmpdir(),
+      process.platform === "win32"
+        ? "runnel install rollback #local "
+        : "runnel install rollback # % & "
+    )
+  );
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const sentinel = join(parent, "keep.txt");
   writeFileSync(sentinel, "existing sibling");
