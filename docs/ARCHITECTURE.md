@@ -421,7 +421,9 @@ instances fail with
 `ResultEncodingFailed`; oversized results fail with `ResultTooLarge`. Scripts
 choose their own bounded result. Invalid BSON payloads, invalid dates, and unsigned Long values beyond the signed
 BSON range fail rather than being coerced. The runner snapshots plain data and native
-BSON values before encoding so
+BSON values before encoding. JavaScript integers outside the safe integer range
+use BSON Double, preserving their actual IEEE754 values instead of inferring Int64.
+Safe integers keep the query encoder's integer representation. Snapshotting means
 validation and serialization use the same values. It does not silently truncate
 arbitrary values. Awaited failures use fixed application messages even if a
 script modifies a caught error, with useful driver

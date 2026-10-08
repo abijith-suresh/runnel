@@ -96,6 +96,9 @@ function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
     ].map((type) => type.prototype)
   );
   const snapshot = (item: unknown): unknown => {
+    // Native EJSON can infer an inexact or overflowing Int64 from an unsafe JS integer.
+    if (typeof item === "number" && Number.isInteger(item) && !Number.isSafeInteger(item))
+      return new BSON.Double(item);
     if (item === null || ["string", "boolean", "number"].includes(typeof item)) return item;
     if (typeof item !== "object" || item === null) throw new Error("Unsupported result");
     if (seen.has(item)) throw new Error("Cyclic result");

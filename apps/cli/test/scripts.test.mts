@@ -8,7 +8,7 @@ import test from "node:test";
 import { createMongoPool } from "@abijith-suresh/runnel-mongodb";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { MongoClient } from "mongodb";
+import { BSON, MongoClient } from "mongodb";
 import { emptyCatalog } from "../dist/catalog.js";
 import { createOperationHistory, readHistory } from "../dist/history.js";
 import { createScriptRunner, prepareScript, type ScriptOperation } from "../dist/script-runner.js";
@@ -685,6 +685,61 @@ test("native BSON wrappers validate payload types and invalid dates cannot produ
         result["date"],
         format === "json" ? { $date: "1970-01-01T00:00:00Z" } : { $date: { $numberLong: "0" } }
       );
+    }
+  } finally {
+    await worker.stop();
+    await f.cleanup();
+  }
+});
+
+test("large JavaScript numeric results retain their IEEE754 values instead of becoming inexact Int64", async () => {
+  const f = await fixture("export default async()=>2**63;");
+  const worker = createWorkerSupervisor(f.directory, {
+    entrypoint: new URL("./fixtures/script-worker.mjs", import.meta.url),
+  });
+  try {
+    for (const [index, expression] of [
+      "2**60",
+      "2**63",
+      "-(2**63)",
+      "Number.MAX_VALUE",
+    ].entries()) {
+      const expected = [2 ** 60, 2 ** 63, -(2 ** 63), Number.MAX_VALUE][index]!;
+      const path = join(f.directory, `number-${index}.mjs`);
+      await writeFile(path, `export default async()=>${expression};`);
+      for (const execute of [
+        (request: ScriptOperation) => f.operations.execute(request),
+        (request: ScriptOperation) => worker.execute(request),
+      ]) {
+        const encoded = value(await execute({ ...f.request, path, format: "ejson" }));
+        assert(
+          Object.hasOwn(Schema.decodeUnknownSync(Schema.JsonObject)(encoded), "$numberDouble")
+        );
+        const decoded: unknown = BSON.EJSON.deserialize({ value: encoded }, { relaxed: false })[
+          "value"
+        ];
+        assert(decoded instanceof BSON.Double);
+        assert(Object.is(decoded.value, expected));
+        assert(Object.is(value(await execute({ ...f.request, path, format: "json" })), expected));
+      }
+    }
+    const nested = join(f.directory, "nested-number.mjs");
+    await writeFile(
+      nested,
+      "export default async({bson})=>({array:[2**63],code:new bson.Code('code',{n:-(2**63)}),ref:new bson.DBRef('items',new bson.ObjectId('000000000000000000000001'),undefined,{n:2**60})});"
+    );
+    for (const execute of [
+      (request: ScriptOperation) => f.operations.execute(request),
+      (request: ScriptOperation) => worker.execute(request),
+    ]) {
+      const encoded = value(await execute({ ...f.request, path: nested }));
+      const decoded = BSON.EJSON.deserialize({ value: encoded }, { relaxed: false })["value"];
+      assert(decoded.array[0] instanceof BSON.Double);
+      assert(Object.is(decoded.array[0].value, 2 ** 63));
+      assert(decoded.code.scope.n instanceof BSON.Double);
+      assert(Object.is(decoded.code.scope.n.value, -(2 ** 63)));
+      assert(decoded.ref.fields.n instanceof BSON.Double);
+      assert(Object.is(decoded.ref.fields.n.value, 2 ** 60));
     }
   } finally {
     await worker.stop();
