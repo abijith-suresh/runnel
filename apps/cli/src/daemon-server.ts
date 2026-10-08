@@ -16,6 +16,7 @@ import {
   socketPath,
   writeDaemonState,
 } from "./daemon-state.js";
+import { createOperationHistory } from "./history.js";
 import { bounded, failure } from "./worker-protocol.js";
 import { createWorkerSupervisor } from "./worker-supervisor.js";
 
@@ -45,6 +46,7 @@ export async function startDaemon(directory: string, options: { workerEntrypoint
     directory,
     options.workerEntrypoint ? { entrypoint: options.workerEntrypoint } : {}
   );
+  const history = createOperationHistory(directory, worker);
   const sockets = new Set<Socket>();
   let idle: NodeJS.Timeout | undefined;
   let closing: Promise<void> | undefined;
@@ -113,7 +115,10 @@ export async function startDaemon(directory: string, options: { workerEntrypoint
             if (command.action === "reset") {
               await worker.reset();
               respond({ ok: true, data: { reset: true } });
-            } else if (command.action === "execute") respond(await worker.execute(command.request));
+            } else if (command.action === "execute") {
+              const { result, historyFailed } = await history.execute(command.request);
+              respond(historyFailed ? { ...result, warning: "HistoryUnavailable" } : result);
+            }
           } finally {
             inFlight--;
             armIdle();
@@ -142,6 +147,7 @@ export async function startDaemon(directory: string, options: { workerEntrypoint
       const listening = stopListening();
       try {
         await worker.stop();
+        await history.flush();
         afterWorker?.();
         await listening;
       } finally {

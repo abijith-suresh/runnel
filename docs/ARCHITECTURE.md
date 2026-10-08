@@ -24,8 +24,8 @@ remain future work. MongoDB exports its worker-local pool manager. The CLI libra
 entry point still exports an empty module. The executable supports help/version
 and offline catalog discovery. Internal worker operations inspect connections and
 list collections. CLI database commands invoke the worker through a local daemon.
-It now also implements describe, find, count, and aggregate; history, scripts, and
-exports remain planned.
+It now also implements describe, find, count, and aggregate. Operation history is
+on by default. Scripts and exports remain planned.
 
 All workspaces are publishable with public access and fixed, aligned versions.
 The CLI uses ordinary package dependencies rather than bundling. The future
@@ -216,7 +216,7 @@ structured categories. Other driver failures use a generic error; raw messages,
 stacks, URIs, and document-bearing diagnostics never cross IPC.
 
 Human `setup` invokes connection inspection through the daemon. CLI `list` now invokes
-the collection-listing operation. History and script execution remain planned.
+the collection-listing operation. History is recorded by the daemon. Script execution remains planned.
 The worker IPC format is internal. Native Windows process behavior has not been
 validated on Windows.
 
@@ -261,7 +261,7 @@ timer. Idle shutdown and stop close the worker before releasing daemon ownership
 Lifecycle commands return JSON envelopes and do not start an absent daemon.
 `list` requires an explicit environment and uses the core's alias selection rules.
 All command failures return structured errors and a nonzero exit. Operation
-history, scripts, and exports remain planned.
+scripts and exports remain planned.
 
 
 ## Human setup
@@ -341,7 +341,42 @@ permission, authentication, invalid-query, missing-collection, and timeout error
 
 Driver cursor operations have a 10-second deadline and run within the supervisor's
 15-second active deadline. Queue wait time is separate. Export and script deadlines
-remain future work. History is still planned. Standard verification uses synthetic
+remain future work. Operation history is on by default. Standard verification uses synthetic
 handles and inputs; separate WSL probes exercise these commands against Podman
 MongoDB with an isolated catalog and keyring entry. Native Windows query operation
 has not been validated.
+
+## Operation history
+
+The daemon records one entry for each valid database request it accepts, including
+queued requests that fail after a reset, stop, crash, or deadline. Setup connection
+inspection and lifecycle commands are excluded. CLI preflight failures and offline
+commands never reach the recorder. The recorder snapshots request names and reads
+the catalog for configured target names and `settings.historyEnabled`; omission
+means enabled. Unknown names are omitted. Disabling recording applies to newly
+submitted work and leaves existing history intact.
+
+Entries contain an operation name, a UTC start timestamp, elapsed milliseconds
+including queue wait, configured target names when resolved, and a success/error
+outcome. Error codes come from a fixed allowlist; unknown codes become
+`OperationFailed`. No collection names, request values, secret references,
+credentials, physical databases, result documents, or error messages are stored.
+The history schema is CLI-owned and does not change provider contracts or IPC
+worker results.
+
+`history/entries.json` below the catalog directory retains the latest 1,000 entries,
+with a 1 MiB read/write cap. Effect v4 schemas reject unknown fields and malformed
+entries. Reads require private owned directories and regular files; POSIX file
+opens refuse symlinks and do not block on FIFOs. Hardlinks are rejected. Writers
+use a process lock, private temporary file, fsync, and atomic rename. The daemon
+serializes writes and waits for pending recording before graceful shutdown; normal
+idle accounting includes this work. `runnel history` reads entries newest first
+without starting a daemon or accessing credentials.
+
+A save failure preserves the database result and exit status. The daemon response
+adds an optional `HistoryUnavailable` warning, and the CLI emits a fixed diagnostic
+to stderr. Corrupt or unsupported history is preserved rather than overwritten.
+This history is best effort and is not an audit log: hard process termination or
+machine failure may lose an entry, and an error records the application outcome,
+not proof that a writing pipeline had no side effects. Native Windows filesystem
+permissions and history behavior have not been validated.

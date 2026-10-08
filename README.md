@@ -14,8 +14,8 @@ worker with MongoDB pools. `list` now starts a local daemon and lists collection
 for a configured alias. `daemon status`, `daemon reset`, and `daemon stop` manage
 its lifecycle. `setup` prompts for a hidden URI, discovers databases, and
 registers named aliases with credentials in OS storage. `describe`, `find`, `count`,
-and `aggregate` now return bounded JSON/EJSON results. History, scripts, exports,
-and MCP remain planned. See
+and `aggregate` now return bounded JSON/EJSON results. Local operation history is
+on by default. Scripts, exports, and MCP remain planned. See
 [CLI usage](apps/cli/README.md) for implemented commands and
 [the development milestone](docs/DEVELOPMENT.md) for ongoing work.
 

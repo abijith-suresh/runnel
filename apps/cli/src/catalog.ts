@@ -27,7 +27,11 @@ const timeout = Schema.Number.check(
 );
 const catalogSchema = Schema.Struct({
   schemaVersion: Schema.Literal(1),
-  settings: Schema.Struct({ idleTimeoutMs: timeout, scriptTimeoutMs: timeout }),
+  settings: Schema.Struct({
+    idleTimeoutMs: timeout,
+    scriptTimeoutMs: timeout,
+    historyEnabled: Schema.optionalKey(Schema.Boolean),
+  }),
   environments: Schema.Record(
     name,
     Schema.Struct({
