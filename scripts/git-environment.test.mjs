@@ -47,8 +47,8 @@ test("policy tests under a worktree hook leave the caller's repository untouched
         GIT_INDEX_FILE: join(directory, "index"),
       },
       encoding: "utf8",
-      // Allow the nested install, guarded versioning, and Git fixtures to finish.
-      timeout: 300000,
+      // Allow bounded versioning and the remaining Git fixtures to finish.
+      timeout: 120000,
     }
   );
   assert.equal(result.status, 0, `${result.error ?? ""}\n${result.stdout}\n${result.stderr}`);

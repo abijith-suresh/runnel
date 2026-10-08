@@ -494,6 +494,12 @@ and arguments separate from shell parsing. These helpers require an npm script
 context; direct Node invocation without `npm_execpath` fails with an instruction
 to use npm. Policy fixtures use the same helper.
 
+Version-policy fixtures link only executable shims and Changesets packages into
+a temporary repository and run the real guarded version command offline. The
+fixture owns its dependency directory and hidden lockfile. Tests check that caller
+manifests and lockfiles remain unchanged. Normal CI installation and isolated
+tarball installation checks cover dependency installs.
+
 The required `Baseline verified` job includes a native Windows job alongside
 Linux verification. Windows runs `npm run verify`, including strict types,
 release-policy tests, workspace behavior, isolated package installs, workers and
