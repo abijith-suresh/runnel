@@ -41,7 +41,9 @@ export async function buildQueryRequest(
         "InputInvalid",
         "Choose inline input or a file for each JSON/EJSON option."
       );
-    return file === undefined ? (inline ?? fallback) : await readQueryInput(file);
+    return file === undefined
+      ? (inline ?? fallback)
+      : await readQueryInput(file, process.stdin, undefined, `${key}-file`);
   };
   const base = {
     operation: command,

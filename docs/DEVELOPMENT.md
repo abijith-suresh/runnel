@@ -62,6 +62,9 @@ repository credential or release workflow is required.
 - Native Windows database and interactive-terminal testing, and authenticated
   permission-denial integration, remain follow-up platform checks. The Linux CLI
   is available for local testing without publication.
+- Command-specific help lists supported options without catalog or database
+  access. Input-read errors identify the failing option without revealing paths
+  or contents. Script result and timeout diagnostics explain supported values.
 
 The agreed semantics remain in [DESIGN.md](DESIGN.md). Routine implementation
 defaults may be chosen during these slices and documented when they become real.

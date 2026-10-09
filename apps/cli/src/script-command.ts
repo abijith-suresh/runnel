@@ -20,7 +20,7 @@ export function scriptTimeout(value: string): number {
   if (!Number.isInteger(timeout) || timeout < 0 || timeout > scriptMaximumTimeoutMs)
     throw new QueryError(
       "InputInvalid",
-      `Use --timeout 0 or a whole ms/s/m/h duration up to ${scriptMaximumTimeoutMs}ms.`
+      `Use --timeout 0 to disable the deadline, or a nonnegative integer with one unit: 1500ms, 30s, 5m or 1h. For 2m30s use 150s. Maximum ${scriptMaximumTimeoutMs}ms.`
     );
   return timeout;
 }
@@ -52,7 +52,7 @@ export async function buildScriptRequest(
         ? request
         : {
             ...request,
-            args: await readQueryInput(values["args-file"], process.stdin, signal),
+            args: await readQueryInput(values["args-file"], process.stdin, signal, "args-file"),
           };
     prepareScript(supplied);
     signal?.throwIfAborted();

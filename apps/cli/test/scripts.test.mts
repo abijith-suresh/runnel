@@ -241,6 +241,34 @@ test("script results reject native handles, cycles, functions and oversized data
     await f.cleanup();
   }
 });
+test("nested undefined results explain how to return missing values without exposing data", async () => {
+  for (const body of [
+    "export default async ()=>({privateField:'private-content', optional:undefined});",
+    "export default async ()=>['private-content', undefined];",
+  ]) {
+    const f = await fixture(body);
+    try {
+      for (const format of ["json", "ejson"] as const) {
+        const result = await f.operations.execute({ ...f.request, format });
+        assert(!result.ok);
+        assert.equal(result.error.code, "ResultEncodingFailed");
+        assert.match(result.error.message, /nested undefined/);
+        assert.match(result.error.message, /Use null/);
+        assert(!JSON.stringify(result).includes("private-content"));
+        assert(!JSON.stringify(result).includes("privateField"));
+      }
+    } finally {
+      await f.cleanup();
+    }
+  }
+  const f = await fixture("export default async ()=>({optional:null});");
+  try {
+    assert.deepEqual(value(await f.operations.execute(f.request)), { optional: null });
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("cooperative deadlines abort the signal and classify awaited rejections without returning before the script settles", async () => {
   const f = await fixture(`export default async ({signal}) => new Promise((resolve,reject)=>{
     signal.addEventListener('abort',()=>setTimeout(()=>reject(new Error('private abort body')),20),{once:true});

@@ -20,9 +20,9 @@ Usage:
   runnel history
   runnel list -e <environment> [-d <database>]
   runnel describe <collection> -e <environment> [-d <database>]
-  runnel find <collection> -e <environment> [--filter-file <file>] [--limit <n>]
-  runnel count <collection> -e <environment> [--filter-file <file>]
-  runnel aggregate <collection> -e <environment> --pipeline-file <file> [--limit <n>]
+  runnel find <collection> -e <environment> [--filter <json> | --filter-file <file>] [options]
+  runnel count <collection> -e <environment> [--filter <json> | --filter-file <file>]
+  runnel aggregate <collection> -e <environment> (--pipeline <json> | --pipeline-file <file>) [options]
   runnel run <script.mjs> -e <environment> [-d <database>] [--args-file <file>] [--timeout 5m]
   runnel export <collection> -e <environment> --output <file> [--format ejson] [--limit <n>]
   runnel daemon status | reset | stop
@@ -45,7 +45,9 @@ Query options:
 
 Script options:
   --args, --args-file  Plain JSON arguments; file - reads stdin, default {}
-  --timeout           Whole ms/s/m/h duration or 0 to disable; catalog default is 5m
+  --timeout           Integer with one unit: 1500ms, 30s, 5m or 1h; 0 disables it
+
+Run runnel <command> --help for command-specific options.
 
 Scripts stay attached. Interrupting the CLI stops active script work without replay.
 Exports save bounded JSON/EJSON arrays to new files with --output.
@@ -79,6 +81,56 @@ const optionCommands: Record<(typeof queryOptions)[number], readonly string[]> =
   format: [...queryCommands, "run"],
 };
 const scriptOptions = ["args", "args-file", "timeout"] as const;
+const commandUsage: Record<string, string> = {
+  setup: "setup",
+  envs: "envs",
+  connections: "connections -e <environment>",
+  databases: "databases -e <environment>",
+  history: "history",
+  list: "list -e <environment> [-d <database>]",
+  describe: "describe <collection> -e <environment> [options]",
+  find: "find <collection> -e <environment> [options]",
+  count: "count <collection> -e <environment> [options]",
+  aggregate:
+    "aggregate <collection> -e <environment> (--pipeline <json> | --pipeline-file <file>) [options]",
+  export: "export <collection> -e <environment> --output <file> [options]",
+  run: "run <script.mjs> -e <environment> [options]",
+  daemon: "daemon status | reset | stop",
+};
+const queryOptionHelp: Record<(typeof queryOptions)[number], string> = {
+  filter: "--filter <json>              JSON/EJSON filter",
+  "filter-file": "--filter-file <file>         Filter file; - reads stdin",
+  projection: "--projection <json>          JSON/EJSON projection",
+  "projection-file": "--projection-file <file>     Projection file; - reads stdin",
+  sort: "--sort <json>                Sort object with 1/-1 directions",
+  "sort-file": "--sort-file <file>           Sort file; - reads stdin",
+  pipeline: "--pipeline <json>            JSON/EJSON pipeline array; may write data",
+  "pipeline-file": "--pipeline-file <file>       Pipeline file; - reads stdin",
+  limit: "--limit <n>                  Result cap, default 100, maximum 1000",
+  skip: "--skip <n>                   Offset, default 0, maximum 2147483647",
+  format: "--format ejson | json        Canonical EJSON by default; json rejects unsafe Int64",
+};
+function commandHelp(command: string): string {
+  const options = ["-h, --help                  Show command help"];
+  if (["connections", "databases", "list", "run", ...queryCommands].includes(command))
+    options.push("-e, --env <environment>      Required environment name");
+  if (["list", "run", ...queryCommands].includes(command))
+    options.push("-d, --db <database>          Alias; inferred only when there is one");
+  for (const key of queryOptions)
+    if (optionCommands[key].includes(command)) options.push(queryOptionHelp[key]);
+  if (command === "export")
+    options.push(
+      "--output <file>             New JSON/EJSON file; never replaces an existing destination"
+    );
+  if (command === "run")
+    options.push(
+      "--args <json>               Plain JSON arguments, default {}",
+      "--args-file <file>          Arguments file; - reads stdin",
+      "--timeout <duration>        One integer/unit: 1500ms, 30s, 5m, 1h; 0 disables it",
+      "                           For 2m30s use 150s; catalog default is 5m"
+    );
+  return `Runnel ${command}\n\nUsage:\n  runnel ${commandUsage[command]}\n\nOptions:\n  ${options.join("\n  ")}\n`;
+}
 async function main(): Promise<number> {
   let values: QueryValues & ScriptValues & { help?: boolean; version?: boolean; output?: string };
   let positionals: string[];
@@ -100,25 +152,17 @@ async function main(): Promise<number> {
     positionals = parsed.positionals;
     const command = positionals[0];
     if (
-      positionals.length !==
+      (positionals.length !==
         (command === "daemon" || command === "run" || queryCommands.includes(command ?? "")
           ? 2
           : command === undefined
             ? 0
-            : 1) ||
-      (command !== undefined &&
-        ![
-          "setup",
-          "envs",
-          "connections",
-          "databases",
-          "history",
-          "list",
-          "daemon",
-          "run",
-          ...queryCommands,
-        ].includes(command)) ||
-      (command === "daemon" && !["status", "reset", "stop"].includes(positionals[1] ?? "")) ||
+            : 1) &&
+        !(values.help && positionals.length === 1)) ||
+      (command !== undefined && !Object.hasOwn(commandUsage, command)) ||
+      (command === "daemon" &&
+        !(values.help && positionals.length === 1) &&
+        !["status", "reset", "stop"].includes(positionals[1] ?? "")) ||
       (values.env !== undefined &&
         !["connections", "databases", "list", "run", ...queryCommands].includes(command ?? "")) ||
       (values.db !== undefined && !["list", "run", ...queryCommands].includes(command ?? "")) ||
@@ -136,7 +180,7 @@ async function main(): Promise<number> {
   }
 
   if (values.help || (positionals.length === 0 && !values.version)) {
-    process.stdout.write(help);
+    process.stdout.write(positionals[0] === undefined ? help : commandHelp(positionals[0]));
     return 0;
   }
 

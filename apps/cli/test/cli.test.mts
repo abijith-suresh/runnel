@@ -14,7 +14,7 @@ const run = (args: string[]) =>
   spawnSync(process.execPath, [executable, ...args], { encoding: "utf8" });
 
 test("help and no arguments print available options on stdout", () => {
-  for (const args of [[], ["--help"], ["-h"], ["setup", "--help"]]) {
+  for (const args of [[], ["--help"], ["-h"]]) {
     const result = run(args);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stderr, "");
@@ -27,6 +27,44 @@ test("help and no arguments print available options on stdout", () => {
     assert.match(result.stdout, /runnel find <collection>/);
     assert.match(result.stdout, /Exports save bounded JSON\/EJSON arrays/);
   }
+});
+
+test("command help works without operands or catalog access and lists only supported options", () => {
+  for (const command of [
+    "setup",
+    "envs",
+    "connections",
+    "databases",
+    "history",
+    "list",
+    "describe",
+    "find",
+    "count",
+    "aggregate",
+    "export",
+    "run",
+    "daemon",
+  ]) {
+    const result = spawnSync(process.execPath, [executable, command, "--help"], {
+      encoding: "utf8",
+      env: { ...process.env, RUNNEL_HOME: "invalid-relative-catalog" },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.match(result.stdout, new RegExp(`Usage:\\n  runnel ${command}`));
+  }
+  const find = run(["find", "users", "-h"]).stdout;
+  for (const option of ["filter", "filter-file", "projection", "sort", "skip", "format"])
+    assert(find.includes(`--${option}`));
+  assert(!find.includes("--pipeline"));
+  assert(!run(["count", "--help"]).stdout.includes("--limit"));
+  const scripts = run(["run", "--help"]).stdout;
+  assert.match(scripts, /--args-file/);
+  assert.match(scripts, /1500ms/);
+  assert.match(scripts, /For 2m30s use 150s/);
+  assert(!scripts.includes("--filter"));
+  assert.match(run(["export", "--help"]).stdout, /never replaces/);
+  assert.match(run(["daemon", "status", "-h"]).stdout, /status \| reset \| stop/);
 });
 
 test("version flags print the owning package version", () => {
@@ -66,6 +104,10 @@ test("unsupported commands, options, and malformed flags fail without stdout", (
     ["list", "users", "-e", "local"],
     ["count", "users", "--limit", "10"],
     ["envs", "--format", "ejson"],
+    ["unknown", "--help"],
+    ["run", "example.mjs", "extra", "--help"],
+    ["daemon", "pause", "--help"],
+    ["count", "--limit", "10", "--help"],
   ]) {
     const result = run(args);
     assert.equal(result.status, 1);
