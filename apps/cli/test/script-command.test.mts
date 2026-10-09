@@ -124,6 +124,8 @@ test("script CLI prepares absolute entries, plain JSON/file args and bounded dur
       assert.equal(scriptTimeout(text), expected);
     for (const text of [
       "1",
+      "1500",
+      "2m30s",
       "-1s",
       "1.5s",
       " 5m",
@@ -132,7 +134,25 @@ test("script CLI prepares absolute entries, plain JSON/file args and bounded dur
       "2147483548ms",
       "999999999999999h",
     ])
-      assert.throws(() => scriptTimeout(text), QueryError);
+      assert.throws(
+        () => scriptTimeout(text),
+        (error: unknown) =>
+          error instanceof QueryError &&
+          error.code === "InputInvalid" &&
+          error.message.includes("1500ms") &&
+          error.message.includes("For 2m30s use 150s")
+      );
+    await assert.rejects(
+      buildScriptRequest("example.mjs", {
+        env: "local",
+        "args-file": join(f.directory, "private-args.json"),
+      }),
+      (error: unknown) =>
+        error instanceof QueryError &&
+        error.code === "InputUnavailable" &&
+        error.message.includes("--args-file") &&
+        !error.message.includes("private-args")
+    );
     for (const values of [
       { "args-file": join(f.directory, "missing") },
       { env: "local", args: "{}", "args-file": "-" },

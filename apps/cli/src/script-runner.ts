@@ -306,7 +306,7 @@ function resultValue(value: unknown, format: "json" | "ejson"): Schema.Json {
     if (error instanceof QueryError) throw error;
     throw new QueryError(
       "ResultEncodingFailed",
-      "Return JSON/BSON data without native handles, accessors, functions, cycles, or unsupported classes."
+      "Return JSON/BSON data without nested undefined, native handles, accessors, functions, cycles, or unsupported classes. Use null for missing values or omit undefined object properties."
     );
   }
 }

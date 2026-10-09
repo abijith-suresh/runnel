@@ -201,7 +201,8 @@ export function parsePipeline(text: string): Document[] {
 export async function readQueryInput(
   path: string,
   stdin: Readable = process.stdin,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  option?: "filter-file" | "projection-file" | "sort-file" | "pipeline-file" | "args-file"
 ): Promise<string> {
   try {
     signal?.throwIfAborted();
@@ -249,10 +250,13 @@ export async function readQueryInput(
   } catch (error) {
     if (signal?.aborted)
       throw new QueryError("OperationCancelled", "The input read was cancelled.");
-    if (error instanceof QueryError) throw error;
+    if (error instanceof QueryError)
+      throw option === undefined
+        ? error
+        : new QueryError(error.code, `Input for --${option}: ${error.message}`);
     throw new QueryError(
       "InputUnavailable",
-      "Cannot read the JSON/EJSON input as a UTF-8 regular file or stdin stream."
+      `Cannot read ${option === undefined ? "the JSON/EJSON" : `--${option}`} input as a UTF-8 regular file or stdin stream.`
     );
   }
 }

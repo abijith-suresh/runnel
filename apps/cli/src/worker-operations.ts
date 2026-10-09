@@ -38,7 +38,7 @@ const operationMessages = {
   CollectionNotFound: "The named collection does not exist.",
   ResultPrecisionLoss: "Use --format ejson to preserve this BSON Int64 value.",
   ResultEncodingFailed:
-    "Return JSON/BSON data without native handles, accessors, functions, cycles, or unsupported classes.",
+    "Return JSON/BSON data without nested undefined, native handles, accessors, functions, cycles, or unsupported classes. Use null for missing values or omit undefined object properties.",
   ResultTooLarge: "The operation result exceeds its allowed size. Return a bounded result.",
   ScriptUnavailable:
     "Cannot read the JavaScript entry script. Use an absolute regular .mjs or .js file up to 1 MiB.",

@@ -76,3 +76,7 @@ tarballs together and refuses existing destinations. Baseline packaging uses
 this installer. Linux PTY setup and cancellation have passed separate checks.
 See `docs/LOCAL_TESTING.md`; native Windows database and interactive terminal use
 remain separate checks.
+
+Command-specific help needs no catalog or database access. Input-read diagnostics
+identify the option without exposing filenames or contents. Only top-level
+undefined script returns become null; nested undefined remains rejected.

@@ -10,6 +10,8 @@ listing, query commands, attached scripts, history, and daemon lifecycle command
 ```sh
 runnel --help     # also -h; no arguments show help too
 runnel --version  # also -v
+runnel find --help
+runnel run --help
 runnel setup
 runnel envs
 runnel connections -e local
@@ -27,7 +29,9 @@ runnel daemon reset
 runnel daemon stop
 ```
 
-Help lists available commands and flags. Version output
+Help lists available commands and flags. `runnel <command> --help` lists only
+that command's options and does not need an operand, catalog or database access.
+Version output
 comes from the installed package metadata. Both write to stdout and exit with
 status 0. If both flags are supplied, help takes precedence.
 
@@ -156,7 +160,9 @@ Aggregation pipelines run unchanged under the database user's permissions,
 including stages that write data. `--limit` bounds returned documents and does
 not bound pipeline side effects. Runnel adds no separate read/write approval gate.
 Errors are structured and exit nonzero without dumping query values or driver
-messages. Exports use the same query execution and encoding rules.
+messages. Unreadable query or script argument files identify the failing option,
+such as `--filter-file` or `--args-file`, without revealing filenames or contents.
+Exports use the same query execution and encoding rules.
 
 ## JavaScript scripts
 
@@ -186,12 +192,17 @@ when constructing native values. Numeric argument literals must be finite and sa
 
 Output defaults to canonical EJSON; `--format json` chooses relaxed output and
 rejects unsafe Int64 conversion. Return bounded data, not handles or cursors.
-Results have a 512 KiB cap; undefined becomes null. Worker console output is
+Results have a 512 KiB cap. A top-level `undefined` return becomes `null`.
+Nested `undefined` values are rejected with `ResultEncodingFailed`; use `null`
+for missing values or omit undefined object properties. Worker console output is
 discarded so stdout contains one result envelope.
 
 The deadline defaults to `settings.scriptTimeoutMs`, initially five minutes.
-`--timeout` accepts whole durations with `ms`, `s`, `m`, or `h`, up to
-2,147,483,547 ms. `0` disables it. If the catalog setting exceeds this script
+`--timeout` accepts a nonnegative integer followed by one unit, `ms`, `s`, `m`
+or `h`, up to 2,147,483,547 ms. Examples are `1500ms`, `30s`, `5m` and `1h`.
+Composite values such as `2m30s` are rejected; use `150s` instead. Bare nonzero
+numbers need a unit, so use `1500ms` rather than `1500`. `0` disables the deadline.
+If the catalog setting exceeds this script
 limit, lower it or use an explicit supported override. The active deadline
 includes target lookup, imports, execution, and result processing; queue wait is
 separate. It is independent of the daemon's idle timer. Pass `signal` to driver

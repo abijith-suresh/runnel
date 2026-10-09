@@ -106,6 +106,34 @@ test("file and stdin input reads are bounded, UTF-8 and regular-file only", asyn
   }
 });
 
+test("unreadable query inputs identify the option without exposing filenames or contents", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-input-diagnostic-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const file = join(directory, "private-input-name.json");
+  for (const option of ["filter-file", "projection-file", "sort-file", "pipeline-file"] as const) {
+    await assert.rejects(
+      buildQueryRequest(option === "pipeline-file" ? "aggregate" : "find", "users", {
+        env: "local",
+        [option]: file,
+      }),
+      (error: unknown) =>
+        error instanceof QueryError &&
+        error.code === "InputUnavailable" &&
+        error.message.includes(`--${option}`) &&
+        !error.message.includes("private-input-name")
+    );
+  }
+  writeFileSync(file, Buffer.from([0xff]));
+  await assert.rejects(
+    buildQueryRequest("find", "users", { env: "local", "filter-file": file }),
+    (error: unknown) =>
+      error instanceof QueryError &&
+      error.code === "InputUnavailable" &&
+      error.message.includes("--filter-file") &&
+      !error.message.includes("private-input-name")
+  );
+});
+
 test("numeric EJSON wrappers reject overflow, malformed strings, and conflicting fields before query execution", async () => {
   for (const wrapper of [
     { $numberLong: "9223372036854775808" },
