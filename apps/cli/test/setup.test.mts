@@ -10,8 +10,8 @@ import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { readCatalog } from "../dist/catalog.js";
 import { credentialStore } from "../dist/secrets.js";
-import { PromptError, type SetupPrompt, terminalPrompt } from "../dist/setup-prompt.js";
 import { type Registration, registerConnection, setup } from "../dist/setup.js";
+import { PromptError, type SetupPrompt, terminalPrompt } from "../dist/setup-prompt.js";
 
 const envName = "local";
 const connName = "primary";
@@ -43,6 +43,7 @@ const input = (answers: Array<string | Error>) => {
   const prompts: Array<{ label: string; hidden: boolean }> = [];
   let output = "";
   const prompt: SetupPrompt = {
+    color: false,
     async ask(label, options = {}) {
       prompts.push({ label, hidden: options.hidden ?? false });
       const answer = answers.shift();
@@ -52,6 +53,9 @@ const input = (answers: Array<string | Error>) => {
     },
     write(message) {
       output += message;
+    },
+    async progress(_label, action) {
+      return action(new AbortController().signal);
     },
   };
   return { prompt, prompts, output: () => output, remaining: () => answers.length };
@@ -70,7 +74,7 @@ const registration: Registration = {
 test("setup hides URI input, selects and names multiple databases, and stores only a reference", async (t) => {
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const io = input(["local", "", uri, "1", "accounts", "2", "events", "", "y"]);
+  const io = input(["local", "", uri, "1, 2", "", "", "", "y"]);
   const result = await setup(f.directory, io.prompt, {
     inspect: async (value) => {
       assert.equal(value, uri);
@@ -81,12 +85,16 @@ test("setup hides URI input, selects and names multiple databases, and stores on
   });
   assert.deepEqual(result, {
     ok: true,
-    data: { env: "local", connection: "primary", databases: ["accounts", "events"] },
+    data: {
+      env: "local",
+      connection: "primary",
+      databases: ["physical_accounts", "physical_events"],
+    },
   });
   assert.equal(io.remaining(), 0);
   assert.deepEqual(
     io.prompts.filter(({ hidden }) => hidden).map(({ label }) => label),
-    ["MongoDB URI (hidden)"]
+    ["MongoDB connection URI (hidden)"]
   );
   assert(!io.output().includes(uri));
   assert.equal(f.writes(), 1);
@@ -95,8 +103,8 @@ test("setup hides URI input, selects and names multiple databases, and stores on
   assert(ref);
   assert.equal(await Effect.runPromise(f.secrets.read(ref)), uri);
   assert.deepEqual(catalog.environments[envName]?.databases, {
-    accounts: { connection: "primary", database: "physical_accounts" },
-    events: { connection: "primary", database: "physical_events" },
+    physical_accounts: { connection: "primary", database: "physical_accounts" },
+    physical_events: { connection: "primary", database: "physical_events" },
   });
   const persisted = readFileSync(join(f.directory, "catalog.json"), "utf8");
   assert(!persisted.includes(uri));
@@ -107,7 +115,7 @@ test("setup hides URI input, selects and names multiple databases, and stores on
 test("permission-limited discovery permits manual names, including numeric database names", async (t) => {
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const io = input(["local", "primary", uri, "m", "123", "accounts", "", "yes"]);
+  const io = input(["", "", uri, "m", "123", "", "", "yes"]);
   const result = await setup(f.directory, io.prompt, {
     inspect: async () => ({
       ok: false,
@@ -117,8 +125,9 @@ test("permission-limited discovery permits manual names, including numeric datab
   });
   assert(result.ok);
   assert.match(io.output(), /cannot list databases/);
+  assert(io.prompts.some(({ label }) => label === "Database name in MongoDB"));
   assert.equal(
-    (await Effect.runPromise(readCatalog(f.directory))).environments[envName]?.databases[aliasName]
+    (await Effect.runPromise(readCatalog(f.directory))).environments[envName]?.databases["123"]
       ?.database,
     "123"
   );
@@ -128,14 +137,14 @@ test("empty and truncated discovery retain manual selection and expose truncatio
   for (const databases of [[], ["physical_accounts"]]) {
     const f = fixture();
     t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-    const io = input(["local", "primary", uri, "", "manual_database", "accounts", "", "y"]);
+    const io = input(["", "", uri, "m", "manual_database", "", "", "y"]);
     const result = await setup(f.directory, io.prompt, {
       inspect: async () => ({ ok: true, data: { databases, truncated: true } }),
       secrets: f.secrets,
     });
     assert(result.ok);
-    assert.match(io.output(), /truncated/);
-    assert.match(io.output(), /at least one database/);
+    assert.match(io.output(), /shortened/);
+    assert.match(io.output(), /Enter m to add a name/);
   }
 });
 
@@ -150,14 +159,10 @@ test("setup rejects bad names and existing aliases without overwriting them", as
     "other",
     uri,
     "99",
-    "bad.name",
-    "1",
-    "accounts",
-    "new_accounts",
-    "1",
+    "1,2",
+    "",
     "new_accounts",
     "second",
-    "",
     "y",
   ]);
   const result = await setup(f.directory, io.prompt, { inspect, secrets: f.secrets });
@@ -174,7 +179,7 @@ test("allowed inherited-property names work as new environment, connection and a
   for (const name of ["toString", "valueOf", "hasOwnProperty"]) {
     const f = fixture();
     t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-    const io = input([name, name, uri, "1", name, "", "y"]);
+    const io = input([name, name, uri, "1", "", name, "y"]);
     const result = await setup(f.directory, io.prompt, { inspect, secrets: f.secrets });
     assert(result.ok);
     const catalog = await Effect.runPromise(readCatalog(f.directory));
@@ -245,7 +250,7 @@ test("same URI registered in another environment has an independent credential a
 test("setup rechecks conflicts that appeared during input collection under the catalog lock", async (t) => {
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const io = input(["local", "primary", uri, "1", "accounts", "", "y"]);
+  const io = input(["local", "primary", uri, "1", "", "accounts", "y"]);
   const result = await setup(f.directory, io.prompt, {
     inspect: async () => {
       await Effect.runPromise(registerConnection(f.directory, registration, f.secrets));
@@ -261,7 +266,7 @@ test("setup rechecks conflicts that appeared during input collection under the c
 test("catalog commit failure after input removes the new credential and preserves the file", async (t) => {
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const io = input(["local", "primary", uri, "1", "accounts", "", "y"]);
+  const io = input(["local", "primary", uri, "1", "", "accounts", "y"]);
   const result = await setup(f.directory, io.prompt, {
     inspect: async () => {
       writeFileSync(join(f.directory, "catalog.json"), "{broken");
@@ -370,6 +375,75 @@ test("terminal stream errors reject safely and restore raw mode without revealin
     );
     assert.equal(io.input.isRaw, false);
     assert.equal(io.written(), "URI: \n");
+  }
+});
+
+test("setup progress honors NO_COLOR and uses a static status", async () => {
+  const previous = process.env["NO_COLOR"];
+  const term = process.env["TERM"];
+  process.env["NO_COLOR"] = "1";
+  try {
+    const io = terminal();
+    const prompt = terminalPrompt(io.input, io.output);
+    assert.equal(prompt.color, false);
+    await prompt.progress("Checking connection…", async () => "ready");
+    assert.equal(io.written(), "Checking connection…\n");
+    assert(!io.written().includes("\u001b["));
+
+    delete process.env["NO_COLOR"];
+    process.env["TERM"] = "dumb";
+    const dumb = terminal();
+    assert.equal(terminalPrompt(dumb.input, dumb.output).color, false);
+  } finally {
+    if (previous === undefined) delete process.env["NO_COLOR"];
+    else process.env["NO_COLOR"] = previous;
+    if (term === undefined) delete process.env["TERM"];
+    else process.env["TERM"] = term;
+  }
+});
+
+test("colored setup progress clears its line on success, failure, and Ctrl+C", async () => {
+  const noColor = process.env["NO_COLOR"];
+  const term = process.env["TERM"];
+  delete process.env["NO_COLOR"];
+  process.env["TERM"] = "xterm";
+  try {
+    const successful = terminal();
+    await terminalPrompt(successful.input, successful.output).progress(
+      "Checking connection…",
+      async () => "ready"
+    );
+    assert(successful.written().includes("\u001b[2K"));
+
+    const failed = terminal();
+    await assert.rejects(
+      terminalPrompt(failed.input, failed.output).progress("Checking connection…", async () => {
+        throw new Error("synthetic failure");
+      })
+    );
+    assert(failed.written().includes("\u001b[2K"));
+
+    const cancelled = terminal();
+    const prompt = terminalPrompt(cancelled.input, cancelled.output);
+    let aborted = false;
+    const running = prompt.progress("Checking connection…", (signal) => {
+      signal.addEventListener("abort", () => {
+        aborted = true;
+      });
+      return new Promise<string>(() => {});
+    });
+    process.emit("SIGINT");
+    await assert.rejects(
+      running,
+      (error: unknown) => error instanceof PromptError && error.code === "SetupCancelled"
+    );
+    assert.equal(aborted, true);
+    assert(cancelled.written().includes("\u001b[2K"));
+  } finally {
+    if (noColor === undefined) delete process.env["NO_COLOR"];
+    else process.env["NO_COLOR"] = noColor;
+    if (term === undefined) delete process.env["TERM"];
+    else process.env["TERM"] = term;
   }
 });
 
