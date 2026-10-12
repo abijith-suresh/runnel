@@ -1,4 +1,4 @@
-import { type ChildProcess, fork } from "node:child_process";
+import { type ChildProcess, type ForkOptions, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   decodeOperation,
@@ -27,6 +27,16 @@ interface Options {
   entrypoint?: URL;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
+}
+
+export function workerForkOptions(directory: string): ForkOptions {
+  return {
+    env: { ...process.env, RUNNEL_HOME: directory },
+    execArgv: [],
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+    serialization: "json",
+    windowsHide: true,
+  };
 }
 
 /** One persistent child, one application operation at a time, and no automatic replay. */
@@ -64,12 +74,11 @@ export function createWorkerSupervisor(directory: string, options: Options = {})
     void kill(current);
   };
   const start = (): Session => {
-    const child = fork(options.entrypoint ?? new URL("./worker.js", import.meta.url), [], {
-      env: { ...process.env, RUNNEL_HOME: directory },
-      execArgv: [],
-      stdio: ["ignore", "ignore", "ignore", "ipc"],
-      serialization: "json",
-    });
+    const child = fork(
+      options.entrypoint ?? new URL("./worker.js", import.meta.url),
+      [],
+      workerForkOptions(directory)
+    );
     let ready!: (value: boolean) => void;
     let exited!: () => void;
     let announced = false;

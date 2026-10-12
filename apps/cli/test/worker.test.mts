@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { databaseFailure } from "../dist/worker-operations.js";
 import { decodeOperation, type WorkerResult } from "../dist/worker-protocol.js";
-import { createWorkerSupervisor } from "../dist/worker-supervisor.js";
+import { createWorkerSupervisor, workerForkOptions } from "../dist/worker-supervisor.js";
 
 const fixture = new URL("./fixtures/worker.mjs", import.meta.url);
 function supervisor(directory = tmpdir()) {
@@ -32,6 +32,14 @@ function code(result: WorkerResult) {
   assert(!result.ok);
   return result.error.code;
 }
+
+test("worker launch hides the Windows console and preserves its private IPC setup", () => {
+  const options = workerForkOptions("/private/runnel-home");
+  assert.equal(options.windowsHide, true);
+  assert.equal(options.env?.["RUNNEL_HOME"], "/private/runnel-home");
+  assert.deepEqual(options.stdio, ["ignore", "ignore", "ignore", "ipc"]);
+  assert.equal(options.serialization, "json");
+});
 
 test("one persistent worker executes queued operations in order without overlap", async () => {
   const worker = supervisor();
