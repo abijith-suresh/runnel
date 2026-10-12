@@ -4,6 +4,8 @@ import { type Readable, Writable } from "node:stream";
 export interface SetupPrompt {
   ask(label: string, options?: { hidden?: boolean; defaultValue?: string }): Promise<string>;
   write(message: string): void;
+  progress<T>(label: string, action: (signal: AbortSignal) => Promise<T>): Promise<T>;
+  readonly color: boolean;
 }
 export class PromptError extends Error {
   readonly code: "SetupTerminalRequired" | "SetupCancelled" | "SetupInputTooLong";
@@ -26,9 +28,49 @@ export function terminalPrompt(
 ): SetupPrompt {
   if (!input.isTTY || !output.isTTY || !input.setRawMode)
     throw new PromptError("SetupTerminalRequired");
+  const color = process.env["NO_COLOR"] === undefined && process.env["TERM"] !== "dumb";
+  const paint = (value: string, code: string) =>
+    color ? `\u001b[${code}m${value}\u001b[0m` : value;
   return {
+    color,
     write: (message) => {
       output.write(message);
+    },
+    progress: async <T>(label: string, action: (signal: AbortSignal) => Promise<T>) => {
+      const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+      let frame = 0;
+      const controller = new AbortController();
+      const render = () => {
+        const frameMark = frames[frame++ % frames.length] ?? "⠋";
+        const marker = color ? paint(frameMark, "36") : "*";
+        output.write(`\r${marker} ${label}`);
+      };
+      if (color) {
+        render();
+      } else {
+        output.write(`${label}\n`);
+      }
+      const timer = color ? setInterval(render, 90) : undefined;
+      timer?.unref();
+      let onInterrupt: (() => void) | undefined;
+      try {
+        const work = action(controller.signal);
+        if (input.isTTY) {
+          const interruptedWork = new Promise<never>((_resolve, reject) => {
+            onInterrupt = () => {
+              controller.abort();
+              reject(new PromptError("SetupCancelled"));
+            };
+            process.once("SIGINT", onInterrupt);
+          });
+          return await Promise.race([work, interruptedWork]);
+        }
+        return await work;
+      } finally {
+        if (timer) clearInterval(timer);
+        if (onInterrupt) process.off("SIGINT", onInterrupt);
+        if (color) output.write("\r\u001b[2K");
+      }
     },
     ask: (label, options = {}) =>
       new Promise((resolve, reject) => {

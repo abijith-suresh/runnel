@@ -106,38 +106,70 @@ export async function setup(
   directory: string,
   suppliedPrompt?: SetupPrompt,
   dependencies: {
-    inspect?: (uri: string) => Promise<Inspection>;
+    inspect?: (uri: string, signal?: AbortSignal) => Promise<Inspection>;
     secrets?: ReturnType<typeof credentialStore>;
   } = {}
 ): Promise<SetupResult> {
   try {
     const prompt = suppliedPrompt ?? terminalPrompt();
+    const paint = (value: string, code: string) =>
+      prompt.color ? `\u001b[${code}m${value}\u001b[0m` : value;
+    prompt.write(`\n${paint("Runnel setup", "1")}\n`);
+    prompt.write(
+      "An environment groups your databases. A connection names the MongoDB URI. An alias is the short name you use in commands.\n"
+    );
     const loaded = await Effect.runPromise(readCatalog(directory).pipe(Effect.result));
     if (Result.isFailure(loaded)) return { ok: false, error: loaded.failure };
     const catalog = loaded.success;
     const names = Object.keys(catalog.environments).sort();
-    if (names.length) prompt.write(`Configured environments: ${names.join(", ")}\n`);
+    prompt.write(`${paint("Step 1 of 3", "36")}  Choose where to save this connection\n`);
+    if (names.length) {
+      prompt.write("Configured environments\n");
+      names.forEach((name, index) => {
+        prompt.write(`  ${index + 1}. ${name}\n`);
+      });
+    }
     const askName = async (label: string, used: readonly string[], defaultValue?: string) => {
       for (;;) {
         const value = (
           await prompt.ask(label, defaultValue === undefined ? {} : { defaultValue })
         ).trim();
         if (isCatalogName(value) && !used.includes(value)) return value;
-        prompt.write(
-          "Use a new name with 1-64 ASCII letters, digits, underscores, or hyphens. Reserved names are unavailable.\n"
-        );
+        prompt.write("Choose a new name, such as local, prod-east, or analytics_2. No spaces.\n");
       }
     };
-    const env = await askName("Environment name", []);
+    let env = "";
+    for (;;) {
+      const environmentInput = await prompt.ask(
+        names.length
+          ? "Environment number or name (use new:NAME for a numeric name)"
+          : "Environment name",
+        names.includes("local") || names.length === 0 ? { defaultValue: "local" } : {}
+      );
+      const envChoice = environmentInput.trim();
+      const explicitName = envChoice.match(/^new:(.*)$/);
+      const candidate = explicitName
+        ? explicitName[1]
+        : names.includes(envChoice)
+          ? envChoice
+          : /^\d+$/.test(envChoice)
+            ? names[Number(envChoice) - 1]
+            : envChoice;
+      if (candidate && isCatalogName(candidate)) {
+        env = candidate;
+        break;
+      }
+      prompt.write("Choose a listed number or a name such as local or prod-east. No spaces.\n");
+    }
     const current = (Object.hasOwn(catalog.environments, env)
       ? catalog.environments[env]
       : undefined) ?? { connections: {}, databases: {} };
     const connection = await askName(
-      "New connection name",
+      "Connection name (labels this MongoDB URI)",
       Object.keys(current.connections),
       Object.hasOwn(current.connections, "primary") ? undefined : "primary"
     );
-    const uri = await prompt.ask("MongoDB URI (hidden)", { hidden: true });
+    const uri = await prompt.ask("MongoDB connection URI (hidden)", { hidden: true });
     if (!uri || Buffer.byteLength(uri, "utf8") > 16384)
       return {
         ok: false,
@@ -146,69 +178,108 @@ export async function setup(
           message: "The connection URI is empty or exceeds the 16 KiB setup input limit.",
         },
       };
-    prompt.write("Checking accessible databases...\n");
-    const inspected = dependencies.inspect
-      ? await dependencies.inspect(uri)
-      : await executeWithDaemon(directory, { operation: "inspect", uri });
+    prompt.write(`${paint("Step 2 of 3", "36")}  Check the connection and find databases\n`);
+    const inspected = await prompt.progress<Inspection>("Checking connection…", async (signal) => {
+      if (dependencies.inspect) return dependencies.inspect(uri, signal);
+      const response = await executeWithDaemon(directory, { operation: "inspect", uri }, signal);
+      if (!response.ok) return { ok: false, error: response.error };
+      if (
+        "databases" in response.data &&
+        Array.isArray(response.data.databases) &&
+        "truncated" in response.data &&
+        typeof response.data.truncated === "boolean"
+      )
+        return {
+          ok: true,
+          data: { databases: response.data.databases, truncated: response.data.truncated },
+        };
+      return {
+        ok: false,
+        error: { code: "SetupUnavailable", message: "Cannot inspect this connection." },
+      };
+    });
     let databases: readonly string[] = [];
     if (!inspected.ok) {
       if (inspected.error.code !== "PermissionDenied") return { ok: false, error: inspected.error };
-      prompt.write(
-        "This database user cannot list databases. Enter physical database names manually.\n"
-      );
+      prompt.write("This user cannot list databases. You can enter database names manually.\n");
     } else if ("databases" in inspected.data) {
       databases = inspected.data.databases.filter(isDatabaseName);
+      prompt.write(`${paint("Connection ready", "32")}\n`);
       if (inspected.data.truncated)
-        prompt.write("Discovery was truncated. Unlisted databases can be entered manually.\n");
+        prompt.write("The list was shortened. You can still enter an unlisted name manually.\n");
     } else {
       return {
         ok: false,
         error: { code: "SetupUnavailable", message: "Cannot inspect this connection." },
       };
     }
+    prompt.write(`${paint("Step 3 of 3", "36")}  Choose databases and command aliases\n`);
+    prompt.write("Press Enter to use each database name as its alias. You can change it.\n");
     for (const [index, name] of databases.entries())
-      prompt.write(`${index + 1}. ${JSON.stringify(name)}\n`);
+      prompt.write(`  ${index + 1}. ${JSON.stringify(name)}\n`);
     if (!databases.length)
-      prompt.write(
-        "No accessible names were listed. Manual registration does not verify database access.\n"
-      );
-    const aliases: Array<{ name: string; database: string }> = [];
+      prompt.write("No database names were listed. Manual entry does not check access.\n");
+    prompt.write("Choose one or more numbers separated by commas. Enter m to add a name.\n");
+    const selected: string[] = [];
     for (;;) {
       const selection = (
-        await prompt.ask("Database number or physical name; m for manual entry; blank to finish")
+        await prompt.ask(
+          selected.length
+            ? "More numbers, m for a name, or Enter to finish"
+            : "Database numbers or m for a name"
+        )
       ).trim();
+      if (!selection && selected.length) break;
       if (!selection) {
-        if (aliases.length) break;
-        prompt.write("Select at least one database before saving. Ctrl+C cancels setup.\n");
+        prompt.write("Choose at least one database. Press Ctrl+C to cancel.\n");
         continue;
       }
-      const database =
-        selection === "m"
-          ? await prompt.ask("Physical database name")
-          : /^\d+$/.test(selection)
-            ? databases[Number(selection) - 1]
-            : selection;
-      if (database === undefined || !isDatabaseName(database)) {
-        prompt.write(
-          "Select a listed number or enter a valid physical database name. Use m for names that are numbers or m.\n"
+      if (selection.toLowerCase() === "m") {
+        const database = (await prompt.ask("Database name in MongoDB")).trim();
+        if (!isDatabaseName(database)) {
+          prompt.write("Enter a valid database name.\n");
+          continue;
+        }
+        if (selected.includes(database)) {
+          prompt.write("That database is already selected.\n");
+          continue;
+        }
+        selected.push(database);
+      } else {
+        const choices = selection.split(",").map((part) => part.trim());
+        const picked = choices.map((choice) =>
+          /^\d+$/.test(choice) ? databases[Number(choice) - 1] : undefined
         );
-        continue;
+        if (picked.some((database) => database === undefined)) {
+          prompt.write("Use listed numbers separated by commas, or m to enter a name.\n");
+          continue;
+        }
+        const unique = [...new Set(picked as string[])];
+        const additions = unique.filter((database) => !selected.includes(database));
+        if (additions.length === 0) {
+          prompt.write("Those databases are already selected.\n");
+          continue;
+        }
+        selected.push(...additions);
       }
+    }
+    const aliases: Array<{ name: string; database: string }> = [];
+    for (const database of selected) {
+      const usedAliases = [...Object.keys(current.databases), ...aliases.map(({ name }) => name)];
+      const aliasDefault =
+        isCatalogName(database) && !usedAliases.includes(database) ? database : undefined;
       const name = await askName(
-        "Database alias",
-        [...Object.keys(current.databases), ...aliases.map(({ name }) => name)],
-        isCatalogName(database) ? database : undefined
+        `Alias for ${JSON.stringify(database)}`,
+        usedAliases,
+        aliasDefault
       );
       aliases.push({ name, database });
-      prompt.write(`Selected ${env}/${name} -> ${JSON.stringify(database)}\n`);
     }
-    const confirm = (
-      await prompt.ask(
-        `Save ${connection} in ${env} with ${aliases.length} database alias(es)? y/N`
-      )
-    )
-      .trim()
-      .toLowerCase();
+    prompt.write("\nReview\n");
+    prompt.write(`  Environment: ${env}\n  Connection:  ${connection}\n`);
+    for (const { name, database } of aliases)
+      prompt.write(`  ${name} -> ${JSON.stringify(database)}\n`);
+    const confirm = (await prompt.ask("Save these aliases? y/N")).trim().toLowerCase();
     if (confirm !== "y" && confirm !== "yes")
       return {
         ok: false,

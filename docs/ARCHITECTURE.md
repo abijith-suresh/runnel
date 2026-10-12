@@ -308,10 +308,20 @@ answer has a 16 KiB input limit. Hidden input restores terminal mode when it end
 The user chooses an existing or new environment and a new connection name.
 Discovery runs in the worker using an isolated MongoDB client, which closes after
 listing accessible databases. It returns at most 1,000 names with explicit
-truncation. The user selects numbers or enters physical names, then supplies
-unique aliases. Empty results and denied listing permissions allow manual entry;
+truncation. Setup numbers existing environments, defaults a new catalog to
+`local`, and defaults a free connection name to `primary`. The user selects
+multiple discovered databases with comma-separated numbers, or enters a physical
+name with `m`. Empty results and denied listing permissions allow manual entry;
 manual registration does not verify access. Other inspection failures stop setup.
-Unlisted names remain available when discovery is truncated.
+Unlisted names remain available when discovery is truncated. Each alias defaults
+to its physical database name when that is a valid, unused alias. The review shows
+the environment, connection, and alias-to-database mappings before confirmation.
+
+The terminal shows three short setup steps and a connection-check spinner. Color
+is limited to interactive stderr and disabled by `NO_COLOR` or `TERM=dumb`; without
+color, setup prints a static status instead. Progress ends on success, failure, or
+Ctrl+C before another prompt appears. `new:NAME` lets a user create an environment
+whose name could otherwise look like a numbered choice.
 
 Setup adds registrations without overwriting connections or aliases. After all
 choices and confirmation, OS credential storage receives a new independent entry.

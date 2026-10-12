@@ -93,14 +93,16 @@ such as GNOME Keyring. Native Windows uses Windows credential storage. Run
 `npm run check:native-credentials` from the repository to test the OS store with
 one synthetic entry, which the check removes afterward.
 
-Run `runnel setup` in an interactive terminal. Enter your URI only at its hidden
-prompt. Choose an environment, a new connection name, and database aliases.
-The final confirmation saves secret references in the user-wide catalog;
-connection strings stay in OS storage. Setup can register a physical database
-name manually even before that database exists.
+Run `runnel setup` in an interactive terminal. Setup defaults a new catalog to
+the `local` environment and a free connection to `primary`. Enter your URI only
+at its hidden prompt. Choose discovered databases with comma-separated numbers,
+or enter a database name in MongoDB with `m`. Each alias defaults to the database
+name when available. Review the alias-to-database map before saving. The catalog
+stores secret references; connection strings stay in OS storage. Manual names do
+not verify that a database exists or that your user can access it.
 
-For a local sandbox, register an environment named `local`, a physical database
-named `runnel_sandbox`, and an alias named `sandbox`. To create one synthetic row
+For a local sandbox, register an environment named `local`, a database named
+`runnel_sandbox`, and an alias named `sandbox`. To create one synthetic row
 there, save this as `seed.mjs` and run it against that alias.
 
 ```js
