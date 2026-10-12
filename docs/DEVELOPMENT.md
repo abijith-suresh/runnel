@@ -37,6 +37,8 @@ repository credential or release workflow is required.
   overrides, zero deadlines, and attached cancellation are implemented.
 - Implemented: bounded JSON/EJSON exports, query options, new-file creation and
   explicit truncation metadata.
+- Runtime daemon and worker launches hide the extra console window Node would
+  otherwise create on Windows; the worker keeps its existing IPC channel.
 - Native Windows CI has passed full verification, isolated package installation,
   synthetic process/file lifecycle checks, and OS credential persistence/cleanup.
   Every updated PR head still needs passing required checks before merge.

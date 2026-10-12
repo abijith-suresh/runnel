@@ -1,7 +1,11 @@
 # Local testing
 
-Runnel has not been published. Use Node 24 and npm at the versions pinned in
-`mise.toml`, then run `npm ci` from the repository root.
+Runnel has not been published. The CLI requires Node `>=24.19.0 <25`. For this
+checkout, use Node 24.19.0 and npm 11.16.0 as pinned in `mise.toml`, then run
+`npm ci` from the repository root. The local tarball install does not bundle
+Node; keep the compatible `node.exe` on PowerShell's `PATH` (and npm there while
+installing). A portable Node installation must also be available on that
+terminal's `PATH`.
 The CLI commands below are implemented. MCP and other database providers remain
 planned.
 
