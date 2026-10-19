@@ -39,7 +39,7 @@ flag. `npm run verify` needs no database or credential configuration. The option
 `check:native-credentials` command accesses OS storage, verifies persistence from
 a second process, and removes its synthetic entry. Run packaging and versioning
 helpers through npm so they inherit the npm JavaScript entry point.
-See [local testing](docs/LOCAL_TESTING.md) for the MongoDB probe and manual CLI use.
+See [local testing](#local-testing) for the MongoDB probe and manual CLI use.
 
 ## Branches and pull requests
 
@@ -79,6 +79,135 @@ native credential probe. POSIX-only filesystem and signal tests stay on Linux.
 Native MongoDB and interactive terminal behavior still need separate platform
 integration testing. There is no publication or auto-merge workflow.
 
+The maintainer authorized a local MongoDB CLI milestone: incremental development
+until Runnel can be installed and tested locally against MongoDB. Each slice uses
+a branch, a patch Changeset, focused tests, full verification, and a fresh
+independent review; merge only when required checks pass. Publication, MCP, and
+additional providers are outside that milestone.
+
+## Releases
+
+All Runnel releases advance exactly one patch. This rule includes functionality
+additions and continues after 1.0. Minor or major Changesets, prerelease versions,
+skipped increments, downgrades, and unaligned workspace versions are rejected.
+The three public packages share a Changesets fixed group and use the same exact
+internal version. They start at `0.0.1` and are not yet published.
+
+`npm run release-policy` checks pending Changesets, the fixed group, package
+versions, dependency direction, public package metadata, Effect v4 pins, and the
+lockfile. `npm run changeset:check` adds a Git comparison on PRs. Every ordinary
+PR must add a nonempty patch Changeset and leave versions unchanged.
+
+After development PRs and their Changesets land on main, and after every three
+merged feature PRs, prepare a version PR:
+
+```sh
+git switch main
+git pull --ff-only
+git switch -c chore/version-packages
+npm ci
+npm run version:packages
+npm run verify
+git add .
+git commit -m "chore(release): version packages"
+git push -u origin HEAD
+gh pr create --title "chore(release): version packages"
+```
+
+A version PR must consume all existing valid patch Changesets and increment all
+three packages exactly once. Its diff may contain only those deleted Changesets,
+workspace versions and internal dependency versions, changelogs, and the lockfile.
+It cannot mix source or package-script edits into a release. Do not invoke
+unguarded `changeset version`, and do not combine new functionality with a version
+PR. Review and merge it only after required checks pass.
+
+The baseline deliberately has no npm publication command, release workflow,
+GitHub release creation, registry credential, or auto-merge workflow. Versioning
+is local and PR based, and packaging verification never publishes. A future,
+separately authorized release task must define explicit publication controls and
+publish the three matching artifacts; do not enable publication as a side effect
+of a feature PR.
+
+## Local testing
+
+Runnel has not been published. The CLI requires Node `>=24.19.0 <25`. Use Node
+24.19.0 and npm 11.16.0 as pinned in `mise.toml`, then run `npm ci` from the
+repository root. The local tarball install does not bundle Node; keep a compatible
+`node` (and npm, while installing) on `PATH`.
+
+Install a local build with `npm run install:local` and an absolute path to a new
+directory whose parent exists. It builds, packs, and installs all three workspace
+packages together, keeps the tarballs and lockfile there so internal dependencies
+resolve without publication, and checks the installed `runnel --version`.
+
+```sh
+mkdir -p "$HOME/.local/share"
+runnel_install="$HOME/.local/share/runnel-local"
+npm run install:local -- "$runnel_install"
+export PATH="$runnel_install/node_modules/.bin:$PATH"
+runnel --version
+```
+
+The installer refuses existing files, directories, and links, including empty
+directories, and removes only its own newly created directory on failure. Add
+`node_modules/.bin` to your shell profile or user PATH to keep `runnel` available
+in new terminals. Windows installation paths reject the npm launcher
+metacharacters `&`, `%`, `^`, `!` and control characters, including in their
+resolved parent; spaces and `#` are supported. Before switching versions, run
+`runnel daemon stop`, install into another new directory, and update `PATH`.
+
+To use the compiled CLI directly, `npm run build` and invoke
+`node apps/cli/dist/cli.js` (use a terminal alias or PowerShell function for a
+short name). After rebuilding, run `runnel daemon stop` before the next database
+command so the worker and protocol modules reload.
+
+Register and query a target from an interactive terminal. Linux requires a
+session D-Bus connection and an unlocked Secret Service store, such as GNOME
+Keyring; native Windows uses Windows credential storage. `npm run
+check:native-credentials` tests the OS store with one synthetic entry and removes
+it afterward. `runnel setup` prompts for a hidden URI, lists accessible databases,
+and lets you choose and name aliases; each alias defaults to its database name
+when available. The catalog stores secret references, so connection strings stay
+in OS storage. Configured names are never overwritten; manual names are not
+verified against the database.
+
+```sh
+runnel envs
+runnel connections -e local
+runnel databases -e local
+runnel list -e local -d sandbox
+runnel count users -e local -d sandbox
+runnel find users -e local -d sandbox --limit 10
+runnel export users -e local -d sandbox --output users.ejson
+runnel history
+runnel daemon status
+runnel daemon stop
+```
+
+Every database command requires `-e`; omit `-d` only when the environment has
+exactly one alias. Check the output's `ok` and `truncated` fields; a successful
+bounded export can still be incomplete. Exports need a new filename in an
+existing directory. More options and script examples are in
+[CLI usage](apps/cli/README.md).
+
+The default catalog is `$XDG_CONFIG_HOME/runnel` or `~/.config/runnel` on Linux,
+and `%APPDATA%/runnel` on Windows. Set an absolute private `RUNNEL_HOME` for an
+isolated test catalog, and stop the test daemon before changing the variable.
+
+`RUNNEL_TEST_MONGODB_PORT=<port> npm run check:mongodb` optionally builds, packs,
+and installs all three tarballs in a temporary consumer, then runs that installed
+CLI against a local test server. Use a development MongoDB that allows synthetic
+database creation and removal; the check accepts no connection string and never
+reads your existing catalog. On WSL, use rootless Podman with the official MongoDB
+Community image bound to IPv4 loopback. The check creates two random
+`runnel_check_` databases, two synthetic credential entries, and a private
+temporary catalog, then removes them and stops its daemon. Abrupt termination can
+leave fixtures behind. The check passed on Linux in WSL with MongoDB 8.0.32 and
+native Secret Service storage. Native Windows MongoDB access, interactive
+terminal setup and Ctrl+C behavior, and authenticated permission-denial
+integration remain separate checks. `npm run verify` stays independent of MongoDB
+and OS credential configuration.
+
 ## Package boundaries and documentation
 
 Keep core independent of concrete providers and applications. MongoDB depends
@@ -92,9 +221,9 @@ operations with typed Effects and resource scopes when implementation begins;
 pure transformations can remain ordinary functions. Do not silently use v3 APIs
 or replace v4. The official MongoDB Node driver belongs to the adapter.
 
-`docs/DESIGN.md` records planned behavior. `docs/ARCHITECTURE.md` records what
-actually exists. Keep those roles separate as features land. Update docs when
-commands, architecture, tooling, or release mechanics change. Do not add product
+[AGENTS.md](AGENTS.md) states product intent and working rules. [README.md](README.md)
+contains status and a current architecture summary. This file owns the development
+workflow and release process. Update the document that owns the changed truth when
+commands, architecture, tooling, or release mechanics change. Keep prose plain and
+mark proposals, examples, and unresolved decisions as planned. Do not add product
 tests that assert placeholders; add behavior tests when there is behavior to test.
-
-See [release policy](docs/RELEASING.md) for version PRs and publication boundaries.

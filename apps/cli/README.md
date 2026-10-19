@@ -73,7 +73,7 @@ Run CLI tests with `npm test --workspace @abijith-suresh/runnel`.
 `npm run pack:check` checks
 all package artifacts and imports in a temporary local consumer without global
 installation or publication.
-The repository's [local testing guide](../../docs/LOCAL_TESTING.md) covers
+The repository's [local testing guide](../../CONTRIBUTING.md#local-testing) covers
 `npm run install:local` for a persistent local installation, manual setup and
 `npm run check:mongodb`, an optional installed-package check against a local test
 server with native credential storage.
@@ -87,8 +87,8 @@ The catalog is `catalog.json` under `$XDG_CONFIG_HOME/runnel` or
 returns empty discovery results. Invalid or unreadable catalogs fail; they do
 not silently become empty. Human setup creates and updates this catalog with
 serialized atomic replacement; it stores only OS secret references.
-Its schema is documented in
-[the current architecture](../../docs/ARCHITECTURE.md#catalog-and-offline-discovery).
+Its schema is summarized in
+[the architecture section](../../README.md#architecture).
 
 
 ## Registering a connection

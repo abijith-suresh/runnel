@@ -1,82 +1,59 @@
-# Agent instructions
+# Runnel — agent brief
+Named MongoDB targets in one user-wide catalog: humans register credentials once, agents run short commands without connection strings.
 
-## Scope and sources of truth
+## The Project
+Core promise: Humans register credentials and name targets once in a user-wide
+catalog; agents then run short CLI commands (`list`, `describe`, `find`, `count`,
+`aggregate`, `run`, `export`) without supplying a connection string. Start with a
+CLI and MongoDB; MCP and other providers come later. Use Effect v4 and the
+official MongoDB Node driver.
 
-Runnel currently implements in-memory database target selection in core and CLI
-help/version flags and offline catalog discovery. The MongoDB adapter now owns
-worker-local connection pools. Additional
-product work needs an explicit task. Do not turn planned examples into implemented commands as part of
-an unrelated change.
+Non-goals: no MCP or other-provider package before implementation needs it; no
+custom script DSL, workflow engine, or mongosh emulation; no separate read/write
+approval gate (database-user permissions are authoritative); no publication,
+GitHub releases, or auto-merge in the baseline.
 
-| Document or code | Responsibility |
-| --- | --- |
-| `README.md` | Current status and repository navigation |
-| `docs/DESIGN.md` | Agreed product intent, planned commands, unresolved decisions |
-| `docs/ARCHITECTURE.md` | Current package and build architecture |
-| `CONTRIBUTING.md` | Development commands and PR process |
-| `docs/RELEASING.md` | Patch-only release process and publication boundaries |
-| Manifests and `package-lock.json` | Dependency and tool versions |
-| `.github/workflows/` and `scripts/` | Executable CI and release-policy truth |
+Status: live (early stage) — core target selection, CLI setup/discovery/query/
+script/export, daemon lifecycle, and operation history are implemented; MCP and
+additional providers remain planned. Do not turn planned examples into
+implemented commands as part of an unrelated change.
 
-Implementation and tests determine actual behavior. Design documents do not
-promise that a feature already exists. Preserve that distinction in prose.
-
-## Development rules
-
-- Work in this bound repository. Do not modify Planview, Outpost, or workflows
-  while using them as references.
-- Use branches and PRs after the initial bootstrap. Never push directly to main,
-  force-push main, bypass hooks, auto-merge a PR, or publish without an explicit
-  maintainer instruction.
-- Run `npm run verify` before pushing. Use Conventional Commits and the PR template.
-- Add a nonempty patch Changeset to every ordinary PR, including feature additions.
-  Do not use minor or major bumps, even after 1.0. Release PRs use the guarded
+## How I Work Here
+- Quality gate: `verify` — run `npm run verify` before handoff.
+- Commits: Conventional Commits, enforced by `commitlint.config.mjs`
+  (`@commitlint/config-conventional`). Squash merges; never commit to main.
+- Add a nonempty **patch** Changeset to every ordinary PR, including docs and
+  tooling. Never minor or major, even after 1.0. Release PRs use the guarded
   `npm run version:packages` command and consume existing Changesets.
-- Use npm workspaces, strict TypeScript, Node 24, and ESM. Commit the lockfile.
-- Use Effect v4. Check official documentation for v4 API changes before product
-  implementation. Do not substitute v3 or introduce an Effect demo as product code.
-- Core owns provider contracts and shared concepts and must not import MongoDB,
-  concrete providers, or the CLI. MongoDB depends on core; the CLI composes both.
-- Keep the three public versions and exact internal dependency versions aligned.
-  Do not add dependencies on private workspaces to a public unpacked artifact.
+- Branch with `feat/`, `fix/`, `chore/`, `docs/`, or `ci/`. Open a PR; never push
+  to main, force-push, bypass hooks, auto-merge, or publish without explicit
+  maintainer instruction.
+- Core must not import MongoDB, concrete providers, or the CLI (Biome enforces
+  this). MongoDB depends on core; the CLI composes both. Keep the three public
+  versions and exact internal dependency versions aligned, and do not depend on
+  private workspaces from a public unpacked artifact.
+- Use npm workspaces, strict TypeScript, Node 24, ESM, and Effect v4 (never v3).
+  Commit `package-lock.json`.
 - Keep credentials, real URIs, returned documents, local catalogs, and operation
-  histories out of the repository. Baseline checks need no DB access.
-- Add tests for meaningful behavior or policy enforcement, not empty modules.
-- Update the document that owns the changed truth. Keep prose plain and mark
-  proposals, examples, and unresolved decisions as planned.
+  histories out of the repository. Baseline checks need no database access.
+- Add tests for meaningful behavior or policy, not empty modules. Update the
+  document that owns the changed truth, and mark proposals and examples planned.
+- Optional checks (`check:native-credentials`, `check:mongodb`, `install:local`)
+  are excluded from `verify` and documented in `CONTRIBUTING.md`.
 
-The maintainer has authorized the local MongoDB CLI milestone in
-`docs/DEVELOPMENT.md`. Implement it through concise feature PRs, fresh independent
-review rounds, and passing required checks before merging. Prepare and merge a
-guarded patch version PR after every three merged feature PRs. Publication, MCP,
-and other providers are outside that milestone.
+## Sources of Truth
+| Fact | Where |
+|---|---|
+| Product intent | § The Project (this file) |
+| Runtime behavior | code + tests |
+| Commands & deps | package.json |
+| Commit rules | commitlint.config.mjs |
+Code and tests are the authority; this file never overrides executable truth.
 
-Current behavior includes core names-only target selection and CLI help/version
-and offline catalog discovery, with internal catalog-write, OS credential, and
-persistent worker helpers. The worker owns native MongoDB handles, inspects
-connections, and lists collections. The supervisor queues one operation at a time
-and resets without replay. The CLI now starts a user-wide local daemon for `list`
-and supports `daemon status`, `daemon reset`, and `daemon stop`. Active and queued
-work prevent idle shutdown. Human `setup` now registers new connections and aliases
-with hidden URI input, worker-owned discovery, and OS credential storage. It never
-overwrites configured names. The worker now executes `describe`, `find`, `count`,
-and `aggregate` with bounded JSON/EJSON results. Operation history is on by default;
-the internal script runner now uses real native handles, cross-environment connects,
-BSON helpers, bounded results, and explicit deadlines. CLI `run` is attached, supports
-JSON inline/file/stdin arguments and deadline options, and cancels without replay.
-CLI `export` saves bounded JSON/EJSON arrays to new files without replacing existing destinations.
-MCP remains planned. Keep this status and the owning documents
-accurate as each slice lands.
-
-`npm run check:mongodb` optionally tests installed tarballs against a loopback
-test MongoDB server with synthetic databases, an isolated catalog, and native
-credential storage. It cleans up its own fixtures and is excluded from `verify`.
-`npm run install:local -- /absolute/new-directory` installs the three local
-tarballs together and refuses existing destinations. Baseline packaging uses
-this installer. Linux PTY setup and cancellation have passed separate checks.
-See `docs/LOCAL_TESTING.md`; native Windows database and interactive terminal use
-remain separate checks.
-
-Command-specific help needs no catalog or database access. Input-read diagnostics
-identify the option without exposing filenames or contents. Only top-level
-undefined script returns become null; nested undefined remains rejected.
+## Getting Around
+- packages/core — provider contracts and shared concepts; exports `resolveDatabaseTarget` (names-only env/db selection)
+- packages/mongodb — `createMongoPool`; one MongoDB client per registered connection
+- apps/cli — CLI composition, catalog, daemon/worker, query/script/export commands (see apps/cli/README.md)
+- scripts/ — release policy, packaging, and local-install checks
+- .github/workflows/ci.yml — CI jobs and the required "Baseline verified" check
+- README.md — status and architecture; CONTRIBUTING.md — development workflow
