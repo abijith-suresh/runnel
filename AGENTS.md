@@ -1,82 +1,23 @@
-# Agent instructions
+# runnel — agent brief
+Agent-first named database access for a CLI and MongoDB.
 
-## Scope and sources of truth
+## The Project
+Core promise: A human registers a MongoDB connection and names its databases once in a user-wide catalog. An agent then works by name — `list`, `describe`, `find`, `count`, `aggregate`, `run`, `export` — and never handles a URI. A detached local worker owns every native client and pool, so credentials stay in OS storage and driver handles never cross IPC. Start with the CLI and MongoDB; MCP and other providers come later.
 
-Runnel currently implements in-memory database target selection in core and CLI
-help/version flags and offline catalog discovery. The MongoDB adapter now owns
-worker-local connection pools. Additional
-product work needs an explicit task. Do not turn planned examples into implemented commands as part of
-an unrelated change.
+Non-negotiables:
+- Database-user permissions are authoritative; Runnel adds no read/write approval gate.
+- No MCP or other-provider package before implementation needs it; no custom script DSL, workflow engine, or mongosh emulation.
+- Never make a public unpacked artifact depend on a private workspace; keep the three published versions aligned.
 
-| Document or code | Responsibility |
-| --- | --- |
-| `README.md` | Current status and repository navigation |
-| `docs/DESIGN.md` | Agreed product intent, planned commands, unresolved decisions |
-| `docs/ARCHITECTURE.md` | Current package and build architecture |
-| `CONTRIBUTING.md` | Development commands and PR process |
-| `docs/RELEASING.md` | Patch-only release process and publication boundaries |
-| Manifests and `package-lock.json` | Dependency and tool versions |
-| `.github/workflows/` and `scripts/` | Executable CI and release-policy truth |
+Status: live, early stage. The CLI works end to end against MongoDB; MCP and additional providers are planned.
 
-Implementation and tests determine actual behavior. Design documents do not
-promise that a feature already exists. Preserve that distinction in prose.
+## Sources of Truth
+| Fact | Where |
+|---|---|
+| Product intent | § The Project (this file) |
+| Runtime behavior | code + tests |
+| Commands & deps | package.json |
+| How to work here | `CONTRIBUTING.md` |
+| Commit rules | commitlint.config.mjs |
 
-## Development rules
-
-- Work in this bound repository. Do not modify Planview, Outpost, or workflows
-  while using them as references.
-- Use branches and PRs after the initial bootstrap. Never push directly to main,
-  force-push main, bypass hooks, auto-merge a PR, or publish without an explicit
-  maintainer instruction.
-- Run `npm run verify` before pushing. Use Conventional Commits and the PR template.
-- Add a nonempty patch Changeset to every ordinary PR, including feature additions.
-  Do not use minor or major bumps, even after 1.0. Release PRs use the guarded
-  `npm run version:packages` command and consume existing Changesets.
-- Use npm workspaces, strict TypeScript, Node 24, and ESM. Commit the lockfile.
-- Use Effect v4. Check official documentation for v4 API changes before product
-  implementation. Do not substitute v3 or introduce an Effect demo as product code.
-- Core owns provider contracts and shared concepts and must not import MongoDB,
-  concrete providers, or the CLI. MongoDB depends on core; the CLI composes both.
-- Keep the three public versions and exact internal dependency versions aligned.
-  Do not add dependencies on private workspaces to a public unpacked artifact.
-- Keep credentials, real URIs, returned documents, local catalogs, and operation
-  histories out of the repository. Baseline checks need no DB access.
-- Add tests for meaningful behavior or policy enforcement, not empty modules.
-- Update the document that owns the changed truth. Keep prose plain and mark
-  proposals, examples, and unresolved decisions as planned.
-
-The maintainer has authorized the local MongoDB CLI milestone in
-`docs/DEVELOPMENT.md`. Implement it through concise feature PRs, fresh independent
-review rounds, and passing required checks before merging. Prepare and merge a
-guarded patch version PR after every three merged feature PRs. Publication, MCP,
-and other providers are outside that milestone.
-
-Current behavior includes core names-only target selection and CLI help/version
-and offline catalog discovery, with internal catalog-write, OS credential, and
-persistent worker helpers. The worker owns native MongoDB handles, inspects
-connections, and lists collections. The supervisor queues one operation at a time
-and resets without replay. The CLI now starts a user-wide local daemon for `list`
-and supports `daemon status`, `daemon reset`, and `daemon stop`. Active and queued
-work prevent idle shutdown. Human `setup` now registers new connections and aliases
-with hidden URI input, worker-owned discovery, and OS credential storage. It never
-overwrites configured names. The worker now executes `describe`, `find`, `count`,
-and `aggregate` with bounded JSON/EJSON results. Operation history is on by default;
-the internal script runner now uses real native handles, cross-environment connects,
-BSON helpers, bounded results, and explicit deadlines. CLI `run` is attached, supports
-JSON inline/file/stdin arguments and deadline options, and cancels without replay.
-CLI `export` saves bounded JSON/EJSON arrays to new files without replacing existing destinations.
-MCP remains planned. Keep this status and the owning documents
-accurate as each slice lands.
-
-`npm run check:mongodb` optionally tests installed tarballs against a loopback
-test MongoDB server with synthetic databases, an isolated catalog, and native
-credential storage. It cleans up its own fixtures and is excluded from `verify`.
-`npm run install:local -- /absolute/new-directory` installs the three local
-tarballs together and refuses existing destinations. Baseline packaging uses
-this installer. Linux PTY setup and cancellation have passed separate checks.
-See `docs/LOCAL_TESTING.md`; native Windows database and interactive terminal use
-remain separate checks.
-
-Command-specific help needs no catalog or database access. Input-read diagnostics
-identify the option without exposing filenames or contents. Only top-level
-undefined script returns become null; nested undefined remains rejected.
+Code and tests are the authority; this file never overrides executable truth.

@@ -8,5 +8,5 @@ Every ordinary PR must add a nonempty patch Changeset. A version PR instead
 consumes existing patch Changesets and advances the fixed group by one patch.
 CI validates the actual diff; a release branch name does not bypass policy.
 
-See [the release policy](../docs/RELEASING.md). This baseline has no pending
+See [the release policy](../CONTRIBUTING.md#releases). This baseline has no pending
 release and does not publish packages.
