@@ -35,7 +35,10 @@ npm run verify
 
 Typechecking checks dependency declarations as well as source, with
 `skipLibCheck` disabled. Package scripts can be selected with npm's `--workspace`
-flag. `npm run verify` needs no database or credential configuration. The optional
+flag. `npm run verify` needs no database or credential configuration. Add focused
+tests for the behavior you change; CI owns the full suite. Keep credentials, real
+URIs, returned documents, local catalogs, and operation histories out of the
+repository. The optional
 `check:native-credentials` command accesses OS storage, verifies persistence from
 a second process, and removes its synthetic entry. Run packaging and versioning
 helpers through npm so they inherit the npm JavaScript entry point.
@@ -47,7 +50,8 @@ Use `feat/`, `fix/`, `chore/`, `docs/`, or `ci/` branches. Use Conventional
 Commits and a Conventional Commit PR title of at most 72 characters, with no
 trailing period. Husky runs lint-staged before commits, commitlint for commit
 messages, and verification before pushes. The pre-push hook rejects direct
-pushes from local `main`. Do not bypass hooks with `--no-verify`.
+pushes from local `main`. Do not bypass hooks with `--no-verify`, force-push
+`main`, auto-merge, or publish without an explicit maintainer instruction.
 
 Every ordinary PR adds a new, nonempty **patch** Changeset. This includes tooling
 and documentation changes. Select an affected public package; for repository
@@ -221,9 +225,10 @@ operations with typed Effects and resource scopes when implementation begins;
 pure transformations can remain ordinary functions. Do not silently use v3 APIs
 or replace v4. The official MongoDB Node driver belongs to the adapter.
 
-[AGENTS.md](AGENTS.md) states product intent and working rules. [README.md](README.md)
+[AGENTS.md](AGENTS.md) states product intent and philosophy. [README.md](README.md)
 contains status and a current architecture summary. This file owns the development
 workflow and release process. Update the document that owns the changed truth when
 commands, architecture, tooling, or release mechanics change. Keep prose plain and
-mark proposals, examples, and unresolved decisions as planned. Do not add product
+mark proposals, examples, and unresolved decisions as planned. Do not turn planned
+examples into implemented commands as part of an unrelated change. Do not add product
 tests that assert placeholders; add behavior tests when there is behavior to test.
