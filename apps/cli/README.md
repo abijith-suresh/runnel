@@ -104,8 +104,7 @@ Setup permits manual names when discovery returns no databases or the database
 user lacks listing permission. It does not verify access to manually entered
 names. Authentication and connectivity failures stop setup. Configured names are
 never overwritten; use a new connection and new aliases for another registration.
-The same URI registered elsewhere gets a separate credential entry. Editing
-registrations and credential rotation remain future work.
+The same URI registered elsewhere gets a separate credential entry.
 
 Prompts go to stderr; the final result is a JSON envelope on stdout. Ctrl+C, EOF,
 or declining the save cancels before registration. Credentials cannot be supplied
@@ -114,6 +113,34 @@ Linux requires an unlocked Secret Service store, such as GNOME Keyring, and a
 session D-Bus connection. Windows uses native credential storage through the same
 binding; native Windows setup has not yet been tested. Discovery can start the
 daemon even if setup is later cancelled; `runnel daemon stop` stops it explicitly.
+
+## Managing registrations
+
+Change an existing connection's credentials with `runnel connection rotate primary
+-e local`. A human enters the replacement URI in a hidden interactive terminal
+prompt. Runnel checks the connection, preserves aliases, commits a new credential
+reference, then removes the old credential when no registration references it.
+A concurrent connection change rejects the rotation instead of overwriting it.
+If old-credential cleanup fails after the commit, the result stays successful
+with a `SecretCleanupFailed` warning. A later operation reads the new credential;
+the worker replaces the old connection pool when the URI changes. Already active
+work pins each connection's credentials until that operation finishes, so a
+script's later `connect()` cannot close its original database handle.
+
+Aliases can be managed without accessing MongoDB or credentials:
+
+```sh
+runnel database add reporting -e local --connection primary --database reports
+runnel database rename reporting -e local --to analytics
+runnel database remove analytics -e local
+```
+
+These commands change only catalog mappings. They never create, rename, or drop
+physical databases, and adding an alias does not verify access to that database.
+Existing aliases cannot be overwritten. Remove all aliases referring to a
+connection before `runnel connection remove primary -e local`. Connection removal
+deletes the registration and removes its obsolete credential from OS storage.
+An empty environment remains available for later setup.
 
 
 ## Querying a named database
