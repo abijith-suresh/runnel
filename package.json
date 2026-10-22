@@ -31,7 +31,8 @@
     "prepare": "husky",
     "check:native-credentials": "npm run build && node scripts/check-native-credentials.mjs",
     "check:mongodb": "npm run build && node scripts/pack-check.mjs --mongodb",
-    "install:local": "npm run build && node scripts/local-install.mjs"
+    "install:local": "npm run build && node scripts/local-install.mjs",
+    "check:mongodb-auth": "npm run build && node scripts/check-auth-mongodb.mjs"
   },
   "lint-staged": {
     "*.{js,mjs,cjs,ts,json,jsonc}": "biome check --write --no-errors-on-unmatched"

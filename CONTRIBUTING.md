@@ -30,6 +30,7 @@ npm run verify
 | `npm run verify` | Runs the complete development baseline verification |
 | `npm run check:native-credentials` | Optional OS credential round-trip with one synthetic value and cleanup; requires an unlocked vault |
 | `npm run check:mongodb` | Optional installed-tarball smoke check against a loopback test MongoDB server and native credential storage |
+| `npm run check:mongodb-auth` | Optional disposable authenticated MongoDB check using rootless Podman and synthetic native credentials |
 | `npm run install:local -- /absolute/new-directory` | Builds and installs all three tarballs locally; destination must be new and its parent must exist |
 | `npm run version:packages` | Guards and applies a patch-only release plan, then updates the lockfile |
 
@@ -211,6 +212,20 @@ native Secret Service storage. Native Windows MongoDB access, interactive
 terminal setup and Ctrl+C behavior, and authenticated permission-denial
 integration remain separate checks. `npm run verify` stays independent of MongoDB
 and OS credential configuration.
+
+`npm run check:mongodb-auth` creates its own authenticated MongoDB server using
+rootless Podman and `docker.io/mongodb/mongodb-community-server:8.0-ubuntu2204`.
+It requires Podman, a compatible image or registry access, and unlocked native
+credential storage. It installs the three tarballs together, creates random
+synthetic users and a private catalog, and tests successful reads, denied writes,
+BSON precision, truncation, credential rotation, pool refresh, alias changes,
+credential expiry, recovery, and history redaction.
+The container binds only to IPv4 loopback on an allocated port. Normal cleanup
+stops its daemon, removes its native credential entries, destroys its container
+and volumes, and removes temporary files. It never reads an existing catalog or
+accepts user credentials. Abrupt termination can leave synthetic fixtures behind.
+This optional check has been run on Linux; it does not establish native Windows
+interactive setup or Ctrl+C behavior.
 
 ## Package boundaries and documentation
 
