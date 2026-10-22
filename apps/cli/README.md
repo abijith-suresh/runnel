@@ -125,6 +125,8 @@ accepts `--projection` or `--projection-file`, `--sort` or `--sort-file`, and
 `--pipeline-file` containing an array of stage objects. Inputs are JSON or MongoDB
 EJSON, limited to 256 KiB each. Use `-` as a filename to read stdin, once per command.
 Inline and file inputs for the same option cannot be combined.
+Invalid collection names, formats, limits, offsets, and conflicting input sources
+fail before Runnel reads query files or waits for stdin.
 Canonical and relaxed EJSON wrappers require valid keys, types, and values.
 Date inputs must fit JavaScript's Date range. Ordinary `$regex` query objects keep
 their sibling predicates; use `$regularExpression` for a BSON regex value.

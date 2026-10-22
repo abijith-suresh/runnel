@@ -33,14 +33,15 @@ export async function buildQueryRequest(
   const stdinCount = stems.filter((key) => values[`${key}-file`] === "-").length;
   if (stdinCount > 1)
     throw new QueryError("InputInvalid", "Only one JSON/EJSON option can read stdin.");
-  const source = async (key: (typeof stems)[number], fallback?: string) => {
-    const inline = values[key];
-    const file = values[`${key}-file`];
-    if (inline !== undefined && file !== undefined)
+  for (const key of stems)
+    if (values[key] !== undefined && values[`${key}-file`] !== undefined)
       throw new QueryError(
         "InputInvalid",
         "Choose inline input or a file for each JSON/EJSON option."
       );
+  const source = async (key: (typeof stems)[number], fallback?: string) => {
+    const inline = values[key];
+    const file = values[`${key}-file`];
     return file === undefined
       ? (inline ?? fallback)
       : await readQueryInput(file, process.stdin, undefined, `${key}-file`);
@@ -51,7 +52,16 @@ export async function buildQueryRequest(
     ...(values.env === undefined ? {} : { env: values.env }),
     ...(values.db === undefined ? {} : { db: values.db }),
     ...(values.format === undefined ? {} : { format: values.format }),
+    ...((command === "find" || command === "export" || command === "aggregate") &&
+    values.limit !== undefined
+      ? { limit: integer(values.limit) }
+      : {}),
+    ...((command === "find" || command === "export") && values.skip !== undefined
+      ? { skip: integer(values.skip) }
+      : {}),
   };
+  // Check source-independent options before a file read or a potentially unbounded stdin wait.
+  validateQueryRequest({ ...base, ...(command === "aggregate" ? { pipeline: "[]" } : {}) });
   let request: unknown;
   if (command === "aggregate") {
     const pipeline = await source("pipeline");
@@ -64,7 +74,6 @@ export async function buildQueryRequest(
     request = {
       ...base,
       pipeline,
-      ...(values.limit === undefined ? {} : { limit: integer(values.limit) }),
     };
   } else if (command === "describe") request = base;
   else {
@@ -79,11 +88,12 @@ export async function buildQueryRequest(
         filter,
         ...(projection === undefined ? {} : { projection }),
         ...(sort === undefined ? {} : { sort }),
-        ...(values.limit === undefined ? {} : { limit: integer(values.limit) }),
-        ...(values.skip === undefined ? {} : { skip: integer(values.skip) }),
       };
     }
   }
+  return validateQueryRequest(request);
+}
+function validateQueryRequest(request: unknown): QueryOperation {
   try {
     const decoded = decodeOperation(request) as QueryOperation;
     prepareQuery(decoded);
