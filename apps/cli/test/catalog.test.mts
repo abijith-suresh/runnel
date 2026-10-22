@@ -152,6 +152,60 @@ test("missing catalogs are empty and do not create files", async (t) => {
   assert.equal(existsSync(missing), false);
 });
 
+test("catalog reads reject malformed UTF-8 before schema validation can accept replacement characters", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-invalid-utf8-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const template = Buffer.from(JSON.stringify(fixture()));
+  const databaseOffset = template.indexOf("fixture_accounts");
+  for (const bytes of [
+    [0xff],
+    [0x80],
+    [0xc0, 0xaf],
+    [0xe2, 0x28, 0xa1],
+    [0xed, 0xa0, 0x80],
+    [0xf4, 0x90, 0x80, 0x80],
+    [0xe2, 0x82],
+    [0xf0, 0x9f, 0x92],
+  ]) {
+    const content = Buffer.concat([
+      template.subarray(0, databaseOffset),
+      Buffer.from("private_"),
+      Buffer.from(bytes),
+      template.subarray(databaseOffset + Buffer.byteLength("fixture_accounts")),
+    ]);
+    // Lossy decoding produces a valid schema but silently changes the database name.
+    assert(Result.isSuccess(await decode(JSON.parse(content.toString("utf8")))));
+    writeFileSync(join(directory, "catalog.json"), content);
+    const result = await Effect.runPromise(readCatalog(directory).pipe(Effect.result));
+    assert(Result.isFailure(result), Buffer.from(bytes).toString("hex"));
+    assert.equal(result.failure.code, "CatalogInvalid");
+    assert.doesNotMatch(JSON.stringify(result.failure), /private_|\ufffd/);
+  }
+});
+
+test("catalog reads preserve valid multibyte names and literal replacement characters", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-valid-utf8-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  for (const database of ["fixture_東京é😀", "fixture_\ufffd"]) {
+    const input = fixture();
+    input.environments.work.databases.accounts.database = database;
+    writeFileSync(join(directory, "catalog.json"), JSON.stringify(input));
+    assert.deepEqual(await Effect.runPromise(readCatalog(directory)), input);
+  }
+});
+
+test("catalog reads reject a leading UTF-8 BOM", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-bom-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(
+    join(directory, "catalog.json"),
+    Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(fixture()))])
+  );
+  const result = await Effect.runPromise(readCatalog(directory).pipe(Effect.result));
+  assert(Result.isFailure(result));
+  assert.equal(result.failure.code, "CatalogInvalid");
+});
+
 test("catalog reads fail safely on malformed, oversized, and unreadable files", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "runnel-invalid-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
