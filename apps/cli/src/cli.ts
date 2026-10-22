@@ -17,6 +17,10 @@ Usage:
   runnel envs
   runnel connections -e <environment>
   runnel databases -e <environment>
+  runnel connection rotate | remove <name> -e <environment>
+  runnel database add <alias> -e <environment> --connection <name> --database <physical-name>
+  runnel database rename <alias> -e <environment> --to <new-alias>
+  runnel database remove <alias> -e <environment>
   runnel history
   runnel list -e <environment> [-d <database>]
   runnel describe <collection> -e <environment> [-d <database>]
@@ -81,11 +85,17 @@ const optionCommands: Record<(typeof queryOptions)[number], readonly string[]> =
   format: [...queryCommands, "run"],
 };
 const scriptOptions = ["args", "args-file", "timeout"] as const;
+const managementActions: Record<string, readonly string[]> = {
+  connection: ["rotate", "remove"],
+  database: ["add", "rename", "remove"],
+};
 const commandUsage: Record<string, string> = {
   setup: "setup",
   envs: "envs",
   connections: "connections -e <environment>",
   databases: "databases -e <environment>",
+  connection: "connection rotate | remove <name> -e <environment>",
+  database: "database add | rename | remove <alias> -e <environment> [options]",
   history: "history",
   list: "list -e <environment> [-d <database>]",
   describe: "describe <collection> -e <environment> [options]",
@@ -110,9 +120,19 @@ const queryOptionHelp: Record<(typeof queryOptions)[number], string> = {
   skip: "--skip <n>                   Offset, default 0, maximum 2147483647",
   format: "--format ejson | json        Canonical EJSON by default; json rejects unsafe Int64",
 };
-function commandHelp(command: string): string {
+function commandHelp(command: string, action?: string): string {
   const options = ["-h, --help                  Show command help"];
-  if (["connections", "databases", "list", "run", ...queryCommands].includes(command))
+  if (
+    [
+      "connection",
+      "database",
+      "connections",
+      "databases",
+      "list",
+      "run",
+      ...queryCommands,
+    ].includes(command)
+  )
     options.push("-e, --env <environment>      Required environment name");
   if (["list", "run", ...queryCommands].includes(command))
     options.push("-d, --db <database>          Alias; inferred only when there is one");
@@ -129,10 +149,36 @@ function commandHelp(command: string): string {
       "--timeout <duration>        One integer/unit: 1500ms, 30s, 5m, 1h; 0 disables it",
       "                           For 2m30s use 150s; catalog default is 5m"
     );
+  if (command === "connection")
+    options.push(
+      "rotate                     Hidden interactive URI replacement; preserves aliases",
+      "remove                     Remove an unused registration and its stored credential",
+      "Remove database aliases first. These commands do not drop MongoDB data."
+    );
+  if (command === "database") {
+    if (action === undefined || action === "add")
+      options.push(
+        "--connection <name>        Existing connection for a new alias",
+        "--database <physical-name> Physical MongoDB database name; access is not checked"
+      );
+    if (action === undefined || action === "rename")
+      options.push("--to <new-alias>           New alias for rename");
+    options.push(
+      "Only catalog aliases change. MongoDB databases and collections are not modified."
+    );
+  }
   return `Runnel ${command}\n\nUsage:\n  runnel ${commandUsage[command]}\n\nOptions:\n  ${options.join("\n  ")}\n`;
 }
 async function main(): Promise<number> {
-  let values: QueryValues & ScriptValues & { help?: boolean; version?: boolean; output?: string };
+  let values: QueryValues &
+    ScriptValues & {
+      help?: boolean;
+      version?: boolean;
+      output?: string;
+      connection?: string;
+      database?: string;
+      to?: string;
+    };
   let positionals: string[];
   try {
     const parsed = parseArgs({
@@ -142,6 +188,9 @@ async function main(): Promise<number> {
         env: { type: "string", short: "e" },
         db: { type: "string", short: "d" },
         output: { type: "string" },
+        connection: { type: "string" },
+        database: { type: "string" },
+        to: { type: "string" },
         ...Object.fromEntries(queryOptions.map((key) => [key, { type: "string" }])),
         ...Object.fromEntries(scriptOptions.map((key) => [key, { type: "string" }])),
       },
@@ -153,24 +202,47 @@ async function main(): Promise<number> {
     const command = positionals[0];
     if (
       (positionals.length !==
-        (command === "daemon" || command === "run" || queryCommands.includes(command ?? "")
-          ? 2
-          : command === undefined
-            ? 0
-            : 1) &&
-        !(values.help && positionals.length === 1)) ||
+        (command !== undefined && Object.hasOwn(managementActions, command)
+          ? 3
+          : command === "daemon" || command === "run" || queryCommands.includes(command ?? "")
+            ? 2
+            : command === undefined
+              ? 0
+              : 1) &&
+        !(
+          values.help &&
+          (positionals.length === 1 ||
+            (command !== undefined &&
+              Object.hasOwn(managementActions, command) &&
+              positionals.length === 2))
+        )) ||
       (command !== undefined && !Object.hasOwn(commandUsage, command)) ||
       (command === "daemon" &&
         !(values.help && positionals.length === 1) &&
         !["status", "reset", "stop"].includes(positionals[1] ?? "")) ||
+      (command !== undefined &&
+        Object.hasOwn(managementActions, command) &&
+        !(values.help && positionals.length === 1) &&
+        !managementActions[command]?.includes(positionals[1] ?? "")) ||
       (values.env !== undefined &&
-        !["connections", "databases", "list", "run", ...queryCommands].includes(command ?? "")) ||
+        ![
+          "connection",
+          "database",
+          "connections",
+          "databases",
+          "list",
+          "run",
+          ...queryCommands,
+        ].includes(command ?? "")) ||
       (values.db !== undefined && !["list", "run", ...queryCommands].includes(command ?? "")) ||
       queryOptions.some(
         (key) => values[key] !== undefined && !optionCommands[key].includes(command ?? "")
       ) ||
       (command !== "export" && values.output !== undefined) ||
       (command !== "run" && scriptOptions.some((key) => values[key] !== undefined)) ||
+      ((values.connection !== undefined || values.database !== undefined) &&
+        !(command === "database" && positionals[1] === "add")) ||
+      (values.to !== undefined && !(command === "database" && positionals[1] === "rename")) ||
       (values.version && command !== undefined)
     )
       throw new Error("Unsupported arguments");
@@ -180,11 +252,60 @@ async function main(): Promise<number> {
   }
 
   if (values.help || (positionals.length === 0 && !values.version)) {
-    process.stdout.write(positionals[0] === undefined ? help : commandHelp(positionals[0]));
+    process.stdout.write(
+      positionals[0] === undefined ? help : commandHelp(positionals[0], positionals[1])
+    );
     return 0;
   }
 
   const command = positionals[0];
+  if (command === "connection" || command === "database") {
+    const { catalogDirectory } = await import("./catalog.js");
+    const management = await import("./management.js");
+    let result: import("./management.js").ManagementResult<unknown>;
+    try {
+      if (values.env === undefined) {
+        result = {
+          ok: false,
+          error: {
+            code: "EnvironmentRequired",
+            message: "Specify an environment with -e or --env.",
+          },
+        };
+      } else {
+        const directory = catalogDirectory();
+        const name = positionals[2] ?? "";
+        const env = values.env;
+        if (command === "connection") {
+          const input = { env, connection: name };
+          result =
+            positionals[1] === "rotate"
+              ? await management.rotateConnection(directory, input)
+              : await management.removeConnection(directory, input);
+        } else {
+          const input = { env, alias: name };
+          result =
+            positionals[1] === "add"
+              ? await management.addDatabase(directory, {
+                  ...input,
+                  connection: values.connection ?? "",
+                  database: values.database ?? "",
+                })
+              : positionals[1] === "rename"
+                ? await management.renameDatabase(directory, { ...input, to: values.to ?? "" })
+                : await management.removeDatabase(directory, input);
+        }
+      }
+    } catch {
+      result = {
+        ok: false,
+        error: { code: "CatalogInvalid", message: "Runnel configuration paths must be absolute." },
+      };
+    }
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    if (result.ok && result.warning) process.stderr.write(`${result.warning.message}\n`);
+    return result.ok ? 0 : 1;
+  }
   if (command === "run") {
     const controller = new AbortController();
     let interrupted: number | undefined;

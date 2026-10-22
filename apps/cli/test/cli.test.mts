@@ -35,6 +35,8 @@ test("command help works without operands or catalog access and lists only suppo
     "envs",
     "connections",
     "databases",
+    "connection",
+    "database",
     "history",
     "list",
     "describe",
@@ -65,6 +67,89 @@ test("command help works without operands or catalog access and lists only suppo
   assert(!scripts.includes("--filter"));
   assert.match(run(["export", "--help"]).stdout, /never replaces/);
   assert.match(run(["daemon", "status", "-h"]).stdout, /status \| reset \| stop/);
+});
+
+test("catalog management CLI updates aliases without starting a worker", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-cli-management-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "catalog.json");
+  const original = {
+    schemaVersion: 1,
+    settings: { idleTimeoutMs: 300000, scriptTimeoutMs: 300000 },
+    environments: {
+      local: {
+        connections: { primary: { provider: "mongodb", secretRef: "keyring:runnel/cli-test" } },
+        databases: { shop: { connection: "primary", database: "physical_shop" } },
+      },
+    },
+  };
+  writeFileSync(path, JSON.stringify(original));
+  const invoke = (args: string[], status = 0) => {
+    const result = spawnSync(process.execPath, [executable, ...args], {
+      env: { ...process.env, RUNNEL_HOME: directory },
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    assert.equal(result.status, status, result.stderr);
+    assert.equal(result.stderr, "");
+    return JSON.parse(result.stdout);
+  };
+  assert.equal(
+    invoke(["connection", "remove", "primary", "-e", "local"], 1).error.code,
+    "ConnectionInUse"
+  );
+  assert.equal(
+    invoke(["connection", "rotate", "primary", "-e", "local"], 1).error.code,
+    "SetupTerminalRequired"
+  );
+  invoke([
+    "database",
+    "add",
+    "reporting",
+    "-e",
+    "local",
+    "--connection",
+    "primary",
+    "--database",
+    "physical_reports",
+  ]);
+  invoke(["database", "rename", "reporting", "-e", "local", "--to", "reports"]);
+  const listed = invoke(["databases", "-e", "local"]).data.databases;
+  assert.deepEqual(listed, [
+    { name: "reports", connection: "primary", database: "physical_reports" },
+    { name: "shop", connection: "primary", database: "physical_shop" },
+  ]);
+  invoke(["database", "remove", "reports", "-e", "local"]);
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), original);
+  assert.deepEqual(invoke(["daemon", "status"]), { ok: true, data: { running: false } });
+  assert.equal(invoke(["database", "remove", "shop"], 1).error.code, "EnvironmentRequired");
+  assert.equal(
+    invoke(["database", "add", "missing", "-e", "local"], 1).error.code,
+    "ManagementInvalid"
+  );
+});
+
+test("catalog management rejects unsupported actions and misplaced flags", () => {
+  for (const args of [
+    ["connection", "remove"],
+    ["connection", "drop", "primary"],
+    ["database", "rename", "shop", "--database", "other"],
+    ["database", "remove", "shop", "--connection", "primary"],
+    ["connection", "rotate", "primary", "--uri", "synthetic-secret"],
+    ["find", "orders", "--to", "other"],
+  ]) {
+    const result = run(args);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.doesNotMatch(result.stderr, /synthetic-secret/);
+  }
+  for (const args of [
+    ["connection", "rotate", "--help"],
+    ["database", "rename", "--help"],
+  ]) {
+    const result = run(args);
+    assert.equal(result.status, 0, result.stderr);
+  }
 });
 
 test("version flags print the owning package version", () => {

@@ -7,7 +7,7 @@ import { readCatalog } from "./catalog.js";
 import { executeQuery, prepareQuery } from "./mongodb-query.js";
 import { QueryError } from "./query-input.js";
 import { createScriptRunner, prepareScript } from "./script-runner.js";
-import { credentialStore } from "./secrets.js";
+import { credentialStore, type SecretError } from "./secrets.js";
 import {
   bounded,
   decodeOperation,
@@ -122,7 +122,13 @@ export function workerOperations(
   secrets = credentialStore()
 ) {
   const scripts = createScriptRunner();
-  const database = async (target: { env?: string; db?: string }) => {
+  type Credentials = Map<string, Promise<Result.Result<string, SecretError>>>;
+  const database = async (
+    target: { env?: string; db?: string },
+    credentials: Credentials,
+    missingReference?: string,
+    refreshes = 0
+  ): Promise<{ env: string; db: string; handle: Awaited<ReturnType<MongoPool["database"]>> }> => {
     const resolved = await Effect.runPromise(
       Effect.gen(function* () {
         const catalog = yield* readCatalog(directory);
@@ -150,13 +156,30 @@ export function workerOperations(
             code: "CatalogInvalid",
             message: "The catalog mapping is invalid.",
           });
-        const uri = yield* secrets.read(connection.secretRef);
-        return { env, db, alias, uri };
+        return { env, db, alias, reference: connection.secretRef };
       }).pipe(Effect.result)
     );
     if (Result.isFailure(resolved))
       throw new QueryError(resolved.failure.code, resolved.failure.message);
-    const { env, db, alias, uri } = resolved.success;
+    const { env, db, alias, reference } = resolved.success;
+    if (reference === missingReference)
+      throw new QueryError("SecretNotFound", operationMessages.SecretNotFound);
+    const key = JSON.stringify([env, alias.connection]);
+    let pending = credentials.get(key);
+    if (!pending) {
+      pending = Effect.runPromise(secrets.read(reference).pipe(Effect.result));
+      credentials.set(key, pending);
+    }
+    const secret = await pending;
+    if (Result.isFailure(secret)) {
+      if (credentials.get(key) === pending) credentials.delete(key);
+      // Rotation can remove a reference after our catalog read. Resolve again only
+      // before acquiring a handle; database work is never replayed.
+      if (secret.failure.code === "SecretNotFound" && refreshes < 2)
+        return database(target, credentials, reference, refreshes + 1);
+      throw new QueryError(secret.failure.code, secret.failure.message);
+    }
+    const uri = secret.success;
     const handle = await pool.database(
       JSON.stringify([env, alias.connection]),
       uri,
@@ -167,6 +190,9 @@ export function workerOperations(
   };
   return {
     async execute(input: WorkerOperation): Promise<WorkerResult> {
+      // worker.ts serializes operations. Pin each connection's first credential
+      // for this operation so later script connects cannot retire an active db.
+      const credentials: Credentials = new Map();
       try {
         let decoded: WorkerOperation;
         try {
@@ -205,12 +231,12 @@ export function workerOperations(
           return boundedResult(
             await scripts.execute(
               request,
-              () => database(request),
-              async (target) => (await database(target)).handle,
+              () => database(request, credentials),
+              async (target) => (await database(target, credentials)).handle,
               scriptArgs === undefined ? {} : scriptArgs
             )
           );
-        const { env, db, handle } = await database(request);
+        const { env, db, handle } = await database(request, credentials);
         if (request.operation !== "list")
           return boundedResult(await executeQuery(handle, request, env, db, prepared ?? {}));
         const cursor = handle.listCollections(
