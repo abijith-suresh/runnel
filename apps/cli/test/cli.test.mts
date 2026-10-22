@@ -31,6 +31,8 @@ test("help and no arguments print available options on stdout", () => {
 
 test("command help works without operands or catalog access and lists only supported options", () => {
   for (const command of [
+    "guide",
+    "skill",
     "setup",
     "envs",
     "connections",

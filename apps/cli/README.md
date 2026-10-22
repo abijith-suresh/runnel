@@ -70,6 +70,31 @@ node apps/cli/dist/cli.js envs
 ```
 
 Run CLI tests with `npm test --workspace @abijith-suresh/runnel`.
+
+## Offline agent instructions
+
+The installed CLI includes a `skills/runnel/SKILL.md` file and a guide that reads
+from the same file. Help points agents to the guide, which needs no catalog,
+credential storage, database, or network access:
+
+```sh
+runnel guide
+runnel guide query
+runnel guide scripts
+runnel guide errors
+runnel guide management
+runnel guide all
+runnel skill path
+runnel skill print
+```
+
+`runnel skill` also prints the full skill. `skill path` prints its absolute path
+inside this installation, for loading with an agent's skill mechanism. These
+commands print plain text, while database commands return JSON envelopes.
+Installation includes the skill without changing agent configuration or writing
+to agent-specific directories. The guide explains discovery by name, BSON
+precision, truncation, the native script contract, cancellation, and recovery.
+
 `npm run pack:check` checks
 all package artifacts and imports in a temporary local consumer without global
 installation or publication.

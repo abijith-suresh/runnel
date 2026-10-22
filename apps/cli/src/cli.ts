@@ -13,6 +13,8 @@ Named database access for agents.
 
 Usage:
   runnel [--help | --version]
+  runnel guide [overview | query | scripts | errors | management | all]
+  runnel skill [print | path]
   runnel setup
   runnel envs
   runnel connections -e <environment>
@@ -52,6 +54,7 @@ Script options:
   --timeout           Integer with one unit: 1500ms, 30s, 5m or 1h; 0 disables it
 
 Run runnel <command> --help for command-specific options.
+Run runnel guide for agent instructions, or runnel skill path for the bundled SKILL.md.
 
 Scripts stay attached. Interrupting the CLI stops active script work without replay.
 Exports save bounded JSON/EJSON arrays to new files with --output.
@@ -90,6 +93,8 @@ const managementActions: Record<string, readonly string[]> = {
   database: ["add", "rename", "remove"],
 };
 const commandUsage: Record<string, string> = {
+  guide: "guide [overview | query | scripts | errors | management | all | skill]",
+  skill: "skill [print | path]",
   setup: "setup",
   envs: "envs",
   connections: "connections -e <environment>",
@@ -167,7 +172,15 @@ function commandHelp(command: string, action?: string): string {
       "Only catalog aliases change. MongoDB databases and collections are not modified."
     );
   }
-  return `Runnel ${command}\n\nUsage:\n  runnel ${commandUsage[command]}\n\nOptions:\n  ${options.join("\n  ")}\n`;
+  const details =
+    command === "run"
+      ? "\nDefault-export an async function receiving { db, args, connect, signal, bson }.\nUse connect({ env, db }) for another named target. Return bounded data under\ndata.value; console output is discarded. Script args are plain JSON. Pass large\nintegers as strings and construct bson.Long.fromString(args.value) in the script.\nRun runnel guide scripts for examples and reset/cancellation rules.\n"
+      : ["find", "aggregate", "export"].includes(command)
+        ? "\nResults are bounded to 1000 documents and 512 KiB. Check data.truncated and\ndata.truncationReason before treating them as complete. Export is not a backup.\n"
+        : command === "setup"
+          ? "\nA human must run setup with interactive stdin and stderr terminals.\nCredentials are entered through a hidden prompt, never arguments or piped input.\n"
+          : "";
+  return `Runnel ${command}\n\nUsage:\n  runnel ${commandUsage[command]}\n\nOptions:\n  ${options.join("\n  ")}\n${details}\nOffline agent instructions: runnel guide. Bundled skill: runnel skill path.\n`;
 }
 async function main(): Promise<number> {
   let values: QueryValues &
@@ -201,14 +214,15 @@ async function main(): Promise<number> {
     positionals = parsed.positionals;
     const command = positionals[0];
     if (
-      (positionals.length !==
-        (command !== undefined && Object.hasOwn(managementActions, command)
-          ? 3
-          : command === "daemon" || command === "run" || queryCommands.includes(command ?? "")
-            ? 2
-            : command === undefined
-              ? 0
-              : 1) &&
+      (!(["guide", "skill"].includes(command ?? "") && [1, 2].includes(positionals.length)) &&
+        positionals.length !==
+          (command !== undefined && Object.hasOwn(managementActions, command)
+            ? 3
+            : command === "daemon" || command === "run" || queryCommands.includes(command ?? "")
+              ? 2
+              : command === undefined
+                ? 0
+                : 1) &&
         !(
           values.help &&
           (positionals.length === 1 ||
@@ -217,6 +231,9 @@ async function main(): Promise<number> {
               positionals.length === 2))
         )) ||
       (command !== undefined && !Object.hasOwn(commandUsage, command)) ||
+      (command === "skill" &&
+        positionals[1] !== undefined &&
+        !["print", "path"].includes(positionals[1])) ||
       (command === "daemon" &&
         !(values.help && positionals.length === 1) &&
         !["status", "reset", "stop"].includes(positionals[1] ?? "")) ||
@@ -259,6 +276,26 @@ async function main(): Promise<number> {
   }
 
   const command = positionals[0];
+  if (command === "guide" || command === "skill") {
+    try {
+      const { getAgentGuide, getAgentSkillPath, readAgentSkill } = await import("./agent-help.js");
+      process.stdout.write(
+        command === "guide"
+          ? getAgentGuide(positionals[1])
+          : positionals[1] === "path"
+            ? `${getAgentSkillPath()}\n`
+            : readAgentSkill()
+      );
+      return 0;
+    } catch (error) {
+      process.stderr.write(
+        error instanceof RangeError
+          ? `${error.message}\n`
+          : "Cannot read the bundled agent guide. Reinstall the CLI.\n"
+      );
+      return 1;
+    }
+  }
   if (command === "connection" || command === "database") {
     const { catalogDirectory } = await import("./catalog.js");
     const management = await import("./management.js");

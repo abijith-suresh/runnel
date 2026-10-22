@@ -16,7 +16,7 @@ const decodeTarget = Schema.decodeUnknownSync(targetSchema, { onExcessProperty: 
 const unavailable = () =>
   new QueryError(
     "ScriptUnavailable",
-    "Cannot read the JavaScript entry script. Use an absolute regular .mjs or .js file up to 1 MiB."
+    "Cannot read the JavaScript entry script. Use a regular .mjs or .js file up to 1 MiB; CLI paths resolve from the current directory."
   );
 
 /** Plain JSON arguments are data; EJSON-looking keys are not converted into BSON. */
@@ -42,7 +42,7 @@ export function prepareScript(request: ScriptOperation): Schema.Json {
   } catch {
     throw new QueryError(
       "InputInvalid",
-      "Use valid JSON script arguments with safe numeric literals."
+      "Use plain JSON script arguments with safe numeric literals. Pass large integers as strings and construct bson.Long.fromString(args.value) inside the script; EJSON wrappers in args stay plain objects."
     );
   }
 }

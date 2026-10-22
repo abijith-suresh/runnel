@@ -52,13 +52,16 @@ try {
       !dry.files.some((file) => file.path.startsWith("src/") || file.path.endsWith(".tsbuildinfo")),
       "Source and build cache must not enter the package"
     );
-    if (manifest.bin)
+    if (manifest.bin) {
+      assert(files.has("skills/runnel/SKILL.md"), "CLI agent skill must be packed");
+      assert(files.has("dist/agent-help.js"), "CLI offline guide accessor must be packed");
       assert(
         readFileSync(resolve(pkg.directory, manifest.bin.runnel), "utf8").startsWith(
           "#!/usr/bin/env node\n"
         ),
         "CLI executable needs its shebang"
       );
+    }
   }
   // Exercise the same persistent installer users run, including shell punctuation in its path.
   const consumer = join(
@@ -78,6 +81,45 @@ try {
     { cwd: consumer, encoding: "utf8" }
   );
   assert.equal(imports.status, 0, imports.stderr);
+  // Read only the installed artifact from an unrelated cwd and with no usable catalog.
+  const installedHelp = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import assert from 'node:assert/strict';
+       import { readFileSync } from 'node:fs';
+       import { isAbsolute, relative } from 'node:path';
+       import { agentGuideTopics, getAgentGuide, getAgentSkillPath, readAgentSkill }
+         from './node_modules/@abijith-suresh/runnel/dist/agent-help.js';
+       const path = getAgentSkillPath();
+       assert(isAbsolute(path));
+       assert.equal(relative(process.cwd(), path).replaceAll('\\\\', '/'),
+         'node_modules/@abijith-suresh/runnel/skills/runnel/SKILL.md');
+       const skill = readFileSync(path, 'utf8');
+       assert.equal(readAgentSkill(), skill);
+       assert.equal(getAgentGuide('skill'), skill);
+       for (const topic of agentGuideTopics) {
+         const guide = getAgentGuide(topic);
+         assert(guide.trim().length > 0);
+         assert(skill.includes(guide.trimEnd()));
+         assert(!guide.includes(process.env.RUNNEL_PACK_SOURCE_ROOT));
+       }
+       process.stdout.write('Installed skill and offline guide passed\\n');`,
+    ],
+    {
+      cwd: consumer,
+      env: {
+        ...process.env,
+        RUNNEL_HOME: "invalid-relative-catalog",
+        RUNNEL_PACK_SOURCE_ROOT: root,
+      },
+      encoding: "utf8",
+      timeout: 10000,
+    }
+  );
+  assert.equal(installedHelp.status, 0, installedHelp.stderr);
+  assert.equal(installedHelp.stderr, "");
   const worker = spawnSync(
     process.execPath,
     [
@@ -110,6 +152,23 @@ try {
   );
   assert.equal(worker.status, 0, worker.stderr);
   const executable = join(consumer, "node_modules/@abijith-suresh/runnel/dist/cli.js");
+  const skillPath = spawnSync(process.execPath, [executable, "skill", "path"], {
+    cwd: temporary,
+    encoding: "utf8",
+    env: { ...process.env, RUNNEL_HOME: "invalid-relative-catalog" },
+  });
+  assert.equal(skillPath.status, 0, skillPath.stderr);
+  const skillText = readFileSync(skillPath.stdout.trim(), "utf8");
+  for (const args of [["skill"], ["skill", "print"], ["guide", "skill"]]) {
+    const result = spawnSync(process.execPath, [executable, ...args], {
+      cwd: temporary,
+      encoding: "utf8",
+      env: { ...process.env, RUNNEL_HOME: "invalid-relative-catalog" },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout, skillText);
+  }
   const cli = spawnSync(process.execPath, [executable, "--help"], {
     cwd: consumer,
     encoding: "utf8",
