@@ -53,6 +53,9 @@ mechanism if needed. Installation does not write agent configuration.
 Inspect collection metadata and indexes, then sample documents to learn field
 names and BSON types. `describe` does not infer a document schema, and a small
 sample does not establish every document's shape.
+MongoDB can return an empty result for a collection that does not exist. An empty
+`find`, zero `count`, or empty export therefore does not prove the collection
+exists. Confirm its name with `list` or `describe` before interpreting that result.
 
 ```sh
 runnel describe users -e local -d accounts

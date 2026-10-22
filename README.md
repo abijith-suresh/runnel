@@ -26,6 +26,9 @@ MCP remains planned. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, releases, and
 local testing.
 
+The installed-CLI DeepSeek usability trials and remaining limitations are recorded
+in [the agent trial report](AGENT_TRIALS.md).
+
 ## Development
 
 Use the exact Node and npm versions in `mise.toml`. Then run:
