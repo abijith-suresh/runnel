@@ -29,6 +29,26 @@ export async function buildQueryRequest(
   collection: string,
   values: QueryValues
 ): Promise<QueryOperation> {
+  if (!/^[^\0]{1,1024}$/.test(collection))
+    throw new QueryError(
+      "InputInvalid",
+      "Use a nonempty collection name up to 1024 characters without NUL."
+    );
+  if (values.format !== undefined && !["json", "ejson"].includes(values.format))
+    throw new QueryError(
+      "InputInvalid",
+      "Use --format ejson or --format json. EJSON preserves BSON numeric types."
+    );
+  if (["find", "export", "aggregate"].includes(command) && values.limit !== undefined) {
+    const limit = integer(values.limit, "limit");
+    if (limit < 1 || limit > 1000)
+      throw new QueryError("InputInvalid", "Use --limit with an integer from 1 to 1000.");
+  }
+  if (["find", "export"].includes(command) && values.skip !== undefined) {
+    const skip = integer(values.skip, "skip");
+    if (skip < 0 || skip > 2147483647)
+      throw new QueryError("InputInvalid", "Use --skip with an integer from 0 to 2147483647.");
+  }
   const stems = ["filter", "projection", "sort", "pipeline"] as const;
   const stdinCount = stems.filter((key) => values[`${key}-file`] === "-").length;
   if (stdinCount > 1)
@@ -106,11 +126,13 @@ function validateQueryRequest(request: unknown): QueryOperation {
     );
   }
 }
-function integer(value: string): number {
+function integer(value: string, option?: string): number {
   if (!/^\d+$/.test(value))
     throw new QueryError(
       "InputInvalid",
-      "Limits and offsets must be decimal integers in the supported range."
+      option === undefined
+        ? "Limits and offsets must be decimal integers in the supported range."
+        : `Use --${option} with a nonnegative decimal integer in its supported range.`
     );
   return Number(value);
 }

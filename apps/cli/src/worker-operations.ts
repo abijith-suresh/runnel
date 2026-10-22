@@ -19,7 +19,8 @@ import {
 
 const targetMessages = {
   EnvironmentRequired: "Specify an environment with -e or --env.",
-  EnvironmentNotFound: "The named environment is not configured.",
+  EnvironmentNotFound:
+    "The named environment is not configured. Run runnel envs; a human can register one with runnel setup.",
   NoDatabases: "The environment has no database aliases. Run setup first.",
   DatabaseRequired: "Specify a database alias with -d or --db.",
   DatabaseNotFound: "The named database alias is not configured in this environment.",
@@ -38,10 +39,10 @@ const operationMessages = {
   CollectionNotFound: "The named collection does not exist.",
   ResultPrecisionLoss: "Use --format ejson to preserve this BSON Int64 value.",
   ResultEncodingFailed:
-    "Return JSON/BSON data without nested undefined, native handles, accessors, functions, cycles, or unsupported classes. Use null for missing values or omit undefined object properties.",
+    "Return JSON/BSON data without nested undefined, native handles, cursors, accessors, functions, cycles, or unsupported classes. Await cursor.toArray() for bounded cursor results. Use null for missing values or omit undefined object properties.",
   ResultTooLarge: "The operation result exceeds its allowed size. Return a bounded result.",
   ScriptUnavailable:
-    "Cannot read the JavaScript entry script. Use an absolute regular .mjs or .js file up to 1 MiB.",
+    "Cannot read the JavaScript entry script. Use a regular .mjs or .js file up to 1 MiB; CLI paths resolve from the current directory.",
   ScriptInvalid:
     "Cannot load the JavaScript module and its imports. Default-export a function and reset after fixing it.",
   ScriptChanged: "The loaded entry script changed. Reset the worker before running it again.",

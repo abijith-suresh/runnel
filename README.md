@@ -19,6 +19,8 @@ on by default. `run` executes attached JavaScript with native database handles,
 JSON arguments, deadline options, and cancellation without replay. `export` saves bounded JSON/EJSON arrays to new files.
 `connection rotate` replaces credentials without renaming aliases. `connection remove`
 and `database add`, `rename`, and `remove` manage existing catalog registrations.
+The installed CLI bundles an agent skill; `runnel guide` reads its offline instructions
+and `runnel skill path` locates its `SKILL.md` file.
 MCP remains planned. See
 [CLI usage](apps/cli/README.md) for implemented commands and
 [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, releases, and
