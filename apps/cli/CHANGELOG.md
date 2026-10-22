@@ -1,5 +1,21 @@
 # @abijith-suresh/runnel
 
+## 0.0.7
+
+### Patch Changes
+
+- 22f476d: Add a disposable authenticated MongoDB check of the installed CLI, covering permissions, exact BSON values, bounded export, credential expiry, recovery, and private history.
+- e1991f0: Make interactive setup shorter with database multi-select, clear alias defaults, and terminal progress.
+- 5ca6453: Add command-specific help and clarify nested undefined results, input-file errors, and timeout syntax without changing database permissions or result conversion.
+- 6f0ce87: Reject invalid query options and conflicting inline/file sources before reading input files or waiting for stdin.
+- 40d0fee: Add named database alias management and interactive connection credential rotation and removal, with serialized catalog updates and safe credential cleanup.
+- 848ba9c: Bundle an agent-neutral Runnel skill and portable offline guide with the CLI, including named target discovery, BSON precision, bounded results, and script recovery guidance. Expose the script contract and truncation rules in command help and give specific query-option errors based on installed CLI agent trials.
+- 1b1aa74: Hide the worker process console window on Windows during setup and other worker-backed commands.
+- a31faff: Standardize the agent brief and consolidate the repository documentation into the root README and CONTRIBUTING files.
+- fe56dd5: Reject malformed UTF-8 catalogs instead of silently changing database names during decoding.
+- @abijith-suresh/runnel-core@0.0.7
+  - @abijith-suresh/runnel-mongodb@0.0.7
+
 ## 0.0.6
 
 ### Patch Changes
