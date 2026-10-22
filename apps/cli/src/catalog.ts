@@ -131,7 +131,11 @@ export function readCatalog(directory: string): Effect.Effect<Catalog, CatalogEr
           }
           if (length === buffer.length) throw invalid();
           try {
-            return JSON.parse(buffer.toString("utf8", 0, length)) as unknown;
+            // Keep any BOM so JSON.parse retains its existing rejection behavior.
+            const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+              buffer.subarray(0, length)
+            );
+            return JSON.parse(text) as unknown;
           } catch {
             throw invalid();
           }
