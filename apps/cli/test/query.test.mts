@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -218,6 +218,83 @@ test("query request preparation validates options and reads one selected JSON so
     await assert.rejects(buildQueryRequest("find", "users", values), QueryError);
   await assert.rejects(buildQueryRequest("aggregate", "users", {}), QueryError);
   await assert.rejects(buildQueryRequest("describe", "", {}), QueryError);
+});
+
+test("query preflight rejects invalid options before reading input files", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-query-preflight-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const missing = join(directory, "missing.json");
+  for (const values of [
+    { limit: "0" },
+    { limit: "1001" },
+    { limit: "1e2" },
+    { skip: "-1" },
+    { skip: "2147483648" },
+    { format: "csv" },
+    { projection: "{}", "projection-file": missing },
+    { sort: "{}", "sort-file": missing },
+  ])
+    await assert.rejects(
+      buildQueryRequest("find", "users", { env: "local", "filter-file": missing, ...values }),
+      (error: unknown) => error instanceof QueryError && error.code === "InputInvalid"
+    );
+  for (const command of ["find", "export", "count", "aggregate"] as const)
+    for (const values of [{ format: "csv" }, { env: "x".repeat(1025) }])
+      await assert.rejects(
+        buildQueryRequest(command, "users", {
+          env: "local",
+          [command === "aggregate" ? "pipeline-file" : "filter-file"]: missing,
+          ...values,
+        }),
+        (error: unknown) => error instanceof QueryError && error.code === "InputInvalid"
+      );
+});
+
+test("invalid query options fail while stdin remains open without creating a catalog or daemon", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-query-open-stdin-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const home = join(directory, "missing");
+  for (const args of [
+    ["find", "users", "-e", "local", "--limit", "0", "--filter-file", "-"],
+    ["aggregate", "users", "-e", "local", "--format", "csv", "--pipeline-file", "-"],
+    [
+      "find",
+      "users",
+      "-e",
+      "local",
+      "--filter-file",
+      "-",
+      "--projection",
+      "{}",
+      "--projection-file",
+      join(directory, "missing.json"),
+    ],
+  ]) {
+    const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
+      (resolve, reject) => {
+        const child = spawn(process.execPath, [executable, ...args], {
+          env: { ...process.env, RUNNEL_HOME: home },
+          stdio: ["pipe", "pipe", "pipe"],
+          timeout: 3000,
+        });
+        let stdout = "",
+          stderr = "";
+        child.stdout.on("data", (chunk: Buffer) => {
+          stdout += chunk.toString();
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString();
+        });
+        child.once("error", reject);
+        child.once("close", (status) => resolve({ status, stdout, stderr }));
+        // Keep stdin open: an invalid request must not wait for its query input.
+      }
+    );
+    assert.equal(result.status, 1, "Invalid query options must fail before waiting for stdin.");
+    assert.equal(result.stderr, "");
+    assert.equal(JSON.parse(result.stdout).error.code, "InputInvalid");
+    assert(!existsSync(home));
+  }
 });
 
 test("JSON regex predicates, siblings, DBRef records, and pipeline stages survive EJSON conversion", async () => {
