@@ -10,6 +10,9 @@ listing, query commands, attached scripts, history, and daemon lifecycle command
 ```sh
 runnel --help     # also -h; no arguments show help too
 runnel --version  # also -v
+runnel help
+runnel help find
+runnel help database rename
 runnel find --help
 runnel run --help
 runnel setup
@@ -29,14 +32,28 @@ runnel daemon reset
 runnel daemon stop
 ```
 
-Help lists available commands and flags. `runnel <command> --help` lists only
-that command's options and does not need an operand, catalog or database access.
-Version output
-comes from the installed package metadata. Both write to stdout and exit with
-status 0. If both flags are supplied, help takes precedence.
+Help lists available commands and flags. `runnel help` shows the same help as
+`runnel --help` or no arguments. `runnel help <command>` and
+`runnel <command> --help` list that command's options without requiring operands,
+a catalog, or database access. For a management action, use
+`runnel help database rename` or `runnel database rename --help` to see its usage
+and options. Help still rejects unknown commands, invalid actions, extra
+operands, and unsupported or malformed flags.
 
-Unsupported commands, unknown flags, and malformed options write a concise
-diagnostic to stderr and exit with status 1. Discovery writes a JSON envelope to
+Version output comes from the installed package metadata. Help and version
+write to stdout and exit with status 0. Standalone `--help --version` shows help;
+`--version` cannot be combined with a command.
+
+Syntax failures identify unknown commands or options, missing option values or
+operands, invalid actions, and flags unsupported by the command or action. They
+write plain diagnostics to stderr, leave stdout empty, and exit with status 1.
+The diagnostic points to `runnel help <command>` when the command is recognized.
+It omits argument values and unknown names. Syntax validation happens before
+catalog access, daemon activity, or stdin reads, including when `--help` is
+present. For values starting with a dash, use `--option=<value>`. Use `--` before
+operands starting with a dash; tokens after it are operands, not flags.
+
+Discovery writes a JSON envelope to
 stdout, with `ok: true` and `data`, or `ok: false` and a structured `error`.
 Discovery errors exit with status 1. `connections` and `databases` require an
 explicit `-e`/`--env`. They list configured mappings without connecting to a
