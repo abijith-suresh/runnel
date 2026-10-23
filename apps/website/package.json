@@ -13,8 +13,8 @@
     "preview": "astro preview",
     "check": "astro check",
     "typecheck": "npm run check && tsc --noEmit",
-    "format": "prettier --write 'src/**/*.astro'",
-    "format:check": "prettier --check 'src/**/*.astro'"
+    "format": "prettier --write \"src/**/*.astro\"",
+    "format:check": "prettier --check \"src/**/*.astro\""
   },
   "devDependencies": {
     "@astrojs/check": "0.9.12",
