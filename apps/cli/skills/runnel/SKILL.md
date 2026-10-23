@@ -178,6 +178,8 @@ reads. Follow the help pointer in the diagnostic. Help allows omitted operands
 but still rejects invalid actions and unsupported or malformed flags. Use
 `--option=<value>` for values starting with a dash, and `--` before operands
 starting with a dash. Tokens after `--` are operands, including `--help`.
+Use `-e local` or `-elocal` for short options, or `--env=local` with an equals
+sign. `-e=local` selects the literal name `=local`.
 
 - `EnvironmentRequired` or `EnvironmentNotFound`: use `runnel envs`, then supply
   an explicit configured `-e`. If no suitable target exists, have a human run

@@ -14,7 +14,7 @@ Named database access for agents.
 Usage:
   runnel [--help | --version]
   runnel help [<command> [<action>]]
-  runnel guide [overview | query | scripts | errors | management | all]
+  runnel guide [overview | query | scripts | errors | management | all | skill]
   runnel skill [print | path]
   runnel setup
   runnel envs

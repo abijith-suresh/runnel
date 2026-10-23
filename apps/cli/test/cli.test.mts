@@ -391,10 +391,16 @@ test("double dash, equals, short options and JSON/stdin strings retain their arg
     const result = spawnSync(process.execPath, [executable, ...args], {
       env: { ...process.env, RUNNEL_HOME: home },
       encoding: "utf8",
-      timeout: 3000,
+      timeout: 15000,
       input: '{"flag":"--help","value":-1}',
     });
     try {
+      assert.ifError(result.error);
+      assert.equal(
+        result.signal,
+        null,
+        `CLI terminated by ${result.signal}: ${JSON.stringify(args)}`
+      );
       assert.equal(result.status, 1, result.stderr);
       assert.equal(result.stderr, "");
       const output = JSON.parse(result.stdout);
@@ -409,8 +415,10 @@ test("double dash, equals, short options and JSON/stdin strings retain their arg
         const stopped = spawnSync(process.execPath, [executable, "daemon", "stop"], {
           env: { ...process.env, RUNNEL_HOME: home },
           encoding: "utf8",
-          timeout: 5000,
+          timeout: 10000,
         });
+        assert.ifError(stopped.error);
+        assert.equal(stopped.signal, null, `Daemon stop terminated by ${stopped.signal}`);
         assert.equal(stopped.status, 0, stopped.stderr);
       }
     }

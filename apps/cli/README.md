@@ -52,6 +52,8 @@ It omits argument values and unknown names. Syntax validation happens before
 catalog access, daemon activity, or stdin reads, including when `--help` is
 present. For values starting with a dash, use `--option=<value>`. Use `--` before
 operands starting with a dash; tokens after it are operands, not flags.
+For short options, use `-e local` or `-elocal`; use the long form `--env=local`
+when writing an equals sign. `-e=local` treats `=local` as the environment name.
 
 Discovery writes a JSON envelope to
 stdout, with `ok: true` and `data`, or `ok: false` and a structured `error`.
