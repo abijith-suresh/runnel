@@ -51,7 +51,14 @@ export function installLocal(root, destination) {
     mkdirSync(artifacts);
     const packed = JSON.parse(
       invoke(
-        ["pack", "--workspaces", "--json", "--ignore-scripts", "--pack-destination", artifacts],
+        [
+          "pack",
+          ...packages.flatMap(({ name }) => ["--workspace", name]),
+          "--json",
+          "--ignore-scripts",
+          "--pack-destination",
+          artifacts,
+        ],
         root
       )
     );

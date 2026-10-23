@@ -14,12 +14,15 @@ npm run verify
 
 | Command | What it does |
 | --- | --- |
-| `npm run build` | Builds the TypeScript project references in dependency order |
+| `npm run build` | Builds the TypeScript project references and the private static website |
+| `npm run dev:website` | Starts the private Astro site at `http://localhost:4321/runnel/` |
+| `npm run build:website` | Builds only the static website into `apps/website/dist/` |
+| `npm run preview:website` | Previews the built website locally |
 | `npm run clean` | Removes workspace build outputs and TypeScript caches |
 | `npm run typecheck` | Checks every workspace without emitting files; build first |
 | `npm run lint` | Runs Biome's recommended lint rules |
-| `npm run format` | Writes Biome formatting |
-| `npm run format:check` | Checks Biome formatting |
+| `npm run format` | Writes Biome formatting and the website Astro templates with Prettier |
+| `npm run format:check` | Checks Biome formatting and the website Astro templates with Prettier |
 | `npm run test:policy` | Tests Changeset parsing, version increments, and Git PR diffs |
 | `npm run test` | Runs workspace behavior tests with Node's test runner and typed `.mts` tests |
 | `npm run release-policy` | Checks current Changesets, package boundaries, versions, and lockfile |
@@ -228,6 +231,12 @@ This optional check has been run on Linux; it does not establish native Windows
 interactive setup or Ctrl+C behavior.
 
 ## Package boundaries and documentation
+
+The private `apps/website` workspace owns the static marketing site. See its
+[website guide](apps/website/README.md) for local preview, build, and font licensing.
+It has no live deployment workflow and does not join the three public packages
+in releases or local tarball installs. Root verification builds and checks it;
+its pinned tooling stays in its own dev dependencies.
 
 Keep core independent of concrete providers and applications. MongoDB depends
 on core. The CLI composes both. Declare dependencies by package name in manifests

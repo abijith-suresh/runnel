@@ -1,0 +1,26 @@
+{
+  "name": "runnel-website",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.19.0 <25",
+    "npm": ">=11.16.0 <12"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "typecheck": "npm run check && tsc --noEmit",
+    "format": "prettier --write 'src/**/*.astro'",
+    "format:check": "prettier --check 'src/**/*.astro'"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "astro": "7.4.2",
+    "prettier": "3.9.10",
+    "prettier-plugin-astro": "1.1.1",
+    "typescript": "6.0.3"
+  }
+}

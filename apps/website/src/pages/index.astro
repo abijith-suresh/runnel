@@ -1,0 +1,264 @@
+---
+import CodeBlock from "../components/CodeBlock.astro";
+import SiteLayout from "../components/SiteLayout.astro";
+
+const query = `runnel find users -e local -d accounts \\
+  --filter '{"active":true}' \\
+  --projection '{"_id":0,"name":1}' --limit 2`;
+const result = JSON.stringify(
+  {
+    ok: true,
+    data: {
+      env: "local",
+      db: "accounts",
+      collection: "users",
+      format: "ejson",
+      documents: [{ name: "Ada" }, { name: "Lin" }],
+      truncated: true,
+      truncationReason: "documents",
+      limits: { documents: 2, bytes: 524288 },
+    },
+  },
+  null,
+  2
+);
+const install = `git clone https://github.com/abijith-suresh/runnel.git
+cd runnel
+npm ci
+mkdir -p "$HOME/.local/share"
+runnel_install="$HOME/.local/share/runnel-local"
+npm run install:local -- "$runnel_install"
+export PATH="$runnel_install/node_modules/.bin:$PATH"
+runnel --version`;
+---
+
+<SiteLayout>
+  <section class="hero" aria-labelledby="intro">
+    <p class="eyebrow">
+      <span class="status-dot" aria-hidden="true"></span> A CLI for agents · MongoDB
+    </p>
+    <h1 id="intro">
+      Database access,
+      <br />
+      <span>by name.</span>
+    </h1>
+    <p class="lede">
+      Register a connection once. Give your agent a database name and let it get to work.
+    </p>
+    <p class="hero-detail">
+      Runnel maps environments and database aliases to MongoDB connections. Humans handle setup.
+      Agents query, run JavaScript, and export results through the CLI.
+    </p>
+    <div class="actions">
+      <a class="primary-link" href="#build">
+        Build locally <span aria-hidden="true">↓</span>
+      </a>
+      <a
+        class="text-link"
+        href="https://github.com/abijith-suresh/runnel/blob/main/apps/cli/README.md"
+      >
+        Read the CLI docs <span aria-hidden="true">↗</span>
+      </a>
+    </div>
+    <p class="small-note">Early stage. Available from source, not yet published to npm.</p>
+    <CodeBlock code={query} label="Query a named database" copy />
+    <p class="terminal-note">
+      <code>-e local</code> selects the environment. <code>-d accounts</code> selects its database
+      alias.
+    </p>
+  </section>
+
+  <section class="chapter" aria-labelledby="setup">
+    <div class="chapter-heading">
+      <span class="chapter-number" aria-hidden="true">
+        01
+      </span>
+      <h2 id="setup">Name it once.</h2>
+    </div>
+    <p>
+      A human runs <code>runnel setup</code> in an interactive terminal, enters a hidden MongoDB
+      URI, then chooses databases and names their aliases. The user-wide catalog keeps the mappings;
+      OS credential storage keeps the URI.
+    </p>
+    <CodeBlock code={`runnel setup`} label="Human setup, after local installation" copy />
+    <p>
+      Agents discover those names without supplying connection strings. Every database command needs
+      an environment. You can omit the database alias only when that environment has exactly one.
+    </p>
+    <CodeBlock
+      code={`runnel envs
+runnel databases -e local
+runnel list -e local -d accounts
+runnel describe users -e local -d accounts`}
+      label="Discover names, then inspect collections"
+      copy
+    />
+    <aside class="margin-note">
+      <span class="note-marker" aria-hidden="true">
+        ↳
+      </span>
+      <p>
+        A detached local worker owns the native database handles and connection pools. Handles stay
+        in the worker and never cross IPC.
+      </p>
+    </aside>
+  </section>
+
+  <section class="chapter" aria-labelledby="workflow">
+    <div class="chapter-heading">
+      <span class="chapter-number" aria-hidden="true">
+        02
+      </span>
+      <h2 id="workflow">Use the names. Keep the driver.</h2>
+    </div>
+    <p>
+      Start with a query. Reach for a pipeline or an attached JavaScript module when the task needs
+      more. MongoDB is available today; MCP and other providers are planned.
+    </p>
+    <dl class="command-list">
+      <div>
+        <dt>
+          <code>find · count</code>
+        </dt>
+        <dd>Filter documents or count matches with JSON or EJSON inputs.</dd>
+      </div>
+      <div>
+        <dt>
+          <code>aggregate</code>
+        </dt>
+        <dd>Run a MongoDB pipeline unchanged under the database user's permissions.</dd>
+      </div>
+      <div>
+        <dt>
+          <code>run</code>
+        </dt>
+        <dd>Execute a local JavaScript module with native handles in the worker.</dd>
+      </div>
+      <div>
+        <dt>
+          <code>export</code>
+        </dt>
+        <dd>Save a bounded JSON or EJSON array to a new file.</dd>
+      </div>
+    </dl>
+    <CodeBlock
+      code={`runnel count users -e local -d accounts
+runnel aggregate users -e local -d accounts \\
+  --pipeline-file pipeline.json
+runnel run lookup.mjs -e local -d accounts \\
+  --args '{"filter":{"active":true}}'
+runnel export users -e local -d accounts \\
+  --output users.ejson`}
+      label="Commands for the next step"
+      copy
+    />
+    <CodeBlock
+      code={`export default async function ({ db, args, signal }) {
+  return await db.collection("users")
+    .findOne(args.filter, { signal });
+}`}
+      label="lookup.mjs"
+      copy
+    />
+    <aside class="margin-note">
+      <span class="note-marker" aria-hidden="true">
+        ↳
+      </span>
+      <p>
+        Database permissions are authoritative. Scripts and aggregation pipelines can write. Runnel
+        adds no CLI read/write approval gate, and result limits do not bound side effects.
+      </p>
+    </aside>
+  </section>
+
+  <section class="chapter" aria-labelledby="results">
+    <div class="chapter-heading">
+      <span class="chapter-number" aria-hidden="true">
+        03
+      </span>
+      <h2 id="results">Read the result. Check the bounds.</h2>
+    </div>
+    <p>
+      Query output defaults to canonical MongoDB EJSON, preserving BSON types and numeric widths.
+      Find, aggregate, and export default to 100 documents, allow at most 1,000, and cap the
+      document array at 512 KiB.
+    </p>
+    <CodeBlock code={result} label="Illustrative result for the query above" output />
+    <p>
+      Inspect <code>ok</code> and <code>data.truncated</code>. A successful result can still be
+      incomplete; <code>data.truncationReason</code> explains whether it hit the document or byte
+      limit. Exports use the same bounds and are not database backups.
+    </p>
+    <p class="small-note">
+      The names and returned documents on this page are illustrative. Export destinations must be
+      new files in existing directories.
+    </p>
+  </section>
+
+  <section class="chapter" aria-labelledby="agent-guide">
+    <div class="chapter-heading">
+      <span class="chapter-number" aria-hidden="true">
+        04
+      </span>
+      <h2 id="agent-guide">The agent instructions ship with it.</h2>
+    </div>
+    <p>
+      <code>runnel guide</code> reads the bundled offline instructions. Use{" "}
+      <code>runnel skill path</code> to locate the installed <code>skills/runnel/SKILL.md</code> for
+      your agent's skill mechanism. These commands need no catalog, credentials, database, or
+      network.
+    </p>
+    <CodeBlock
+      code={`runnel guide
+runnel guide query
+runnel guide scripts
+runnel skill path`}
+      label="Orient an agent"
+      copy
+    />
+  </section>
+
+  <section class="chapter build-section" aria-labelledby="build">
+    <div class="chapter-heading">
+      <span class="chapter-number" aria-hidden="true">
+        05
+      </span>
+      <h2 id="build">Build locally.</h2>
+    </div>
+    <p>
+      Use <strong>Node 24.19.0</strong>, <strong>npm 11.16.0</strong>, and Git on your path. Runnel
+      has not been published. This POSIX shell example builds and installs the three public packages
+      together from local tarballs.
+    </p>
+    <CodeBlock code={install} label="Build and install from source" copy />
+    <p>
+      The installation destination must be an absolute path to a <strong>new directory</strong>{" "}
+      whose parent already exists. Existing files, directories, and links are refused. Choose
+      another name if <code>runnel-local</code> exists. On Windows, the installation path and its
+      resolved parent must exclude <code>&amp;</code>, <code>%</code>, <code>^</code>,{" "}
+      <code>!</code>, and control characters. Keep compatible Node on your path, and add the
+      installed <code>node_modules/.bin</code> to your shell profile for future terminals.
+    </p>
+    <p>
+      Then run <code>runnel setup</code> yourself in an interactive terminal. Linux needs a session
+      D-Bus connection and an unlocked Secret Service store. Native Windows uses Windows credential
+      storage; its interactive setup and signal behavior still need platform validation.
+    </p>
+    <p>
+      Before switching Runnel builds, run <code>runnel daemon stop</code>, install into another new
+      directory, and update your path. The{" "}
+      <a href="https://github.com/abijith-suresh/runnel/blob/main/CONTRIBUTING.md#local-testing">
+        local testing guide
+      </a>{" "}
+      covers direct compiled CLI use and Windows installation path rules.
+    </p>
+    <div class="closing-links">
+      <a href="https://github.com/abijith-suresh/runnel">
+        Browse the source <span aria-hidden="true">↗</span>
+      </a>
+      <a href="https://github.com/abijith-suresh/runnel/blob/main/CONTRIBUTING.md">
+        Contribute <span aria-hidden="true">↗</span>
+      </a>
+    </div>
+  </section>
+</SiteLayout>

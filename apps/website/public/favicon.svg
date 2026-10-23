@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <title>Runnel</title>
+  <rect width="40" height="40" rx="8" fill="#141718"/>
+  <path d="M12 11v18m0-10c0-5 7-8 13-6m-13 9c0-4 7-6 13-4" fill="none" stroke="#97c2d9" stroke-width="3"/>
+  <circle cx="27" cy="27" r="3" fill="#a4c8ae"/>
+</svg>
