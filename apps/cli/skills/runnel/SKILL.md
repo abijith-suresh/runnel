@@ -135,6 +135,19 @@ runnel run lookup.mjs -e local -d accounts --args-file args.json --timeout 30s
 
 `db` is the selected native MongoDB database. `connect` takes an explicit
 environment and optional alias, using the same single-alias inference rule.
+
+An operation pins the catalog snapshot at its first database resolution, including
+aliases first visited by later `connect()` calls. Catalog edits become visible on
+the next operation. Each connection shares one credential read and outcome across
+parallel connects. If that credential disappears before the read completes,
+resolution can follow at most two newer references while the connection's complete
+alias mappings still match the snapshot. A mapping change during that retry fails
+with `TargetChanged` before acquiring a handle for that connection. It can reject
+a concurrent alias edit during rotation. Start a new operation to use the changed
+catalog, but inspect state first if the script may already have written data.
+Acquired handles keep their credentials for the rest of the operation. Resolution
+retries never replay database work.
+
 Use `bson` for native values such as `ObjectId`, `Long`, and `Decimal128`;
 no separate driver install is needed for these injected helpers. Script imports
 otherwise follow Node module resolution from the script's location. Scripts

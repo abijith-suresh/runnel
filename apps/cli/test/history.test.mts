@@ -221,6 +221,7 @@ test("recording uses configured names and allowlisted outcome codes without argu
     success,
     failure("QueryInvalid", "private-filter/result-documents"),
     failure("PrivateDocument", "private-result"),
+    failure("TargetChanged", "private-target-details"),
     success,
   ];
   const history = createOperationHistory(home, { execute: async () => results.shift() ?? success });
@@ -234,14 +235,16 @@ test("recording uses configured names and allowlisted outcome codes without argu
   await history.execute(args);
   await history.execute(args);
   await history.execute(args);
+  await history.execute(args);
   await history.execute({ ...args, env: "private-unknown-env", db: "private-unknown-db" });
   await history.flush();
   const entries = await readHistory(home);
-  assert.equal(entries.length, 4);
+  assert.equal(entries.length, 5);
   assert.deepEqual(entries[0]?.targets, {});
-  assert.deepEqual(entries[1]?.outcome, { status: "error", code: "OperationFailed" });
-  assert.deepEqual(entries[2]?.outcome, { status: "error", code: "QueryInvalid" });
-  assert.deepEqual(entries[3]?.targets, { env: "local", db: "accounts", connection: "primary" });
+  assert.deepEqual(entries[1]?.outcome, { status: "error", code: "TargetChanged" });
+  assert.deepEqual(entries[2]?.outcome, { status: "error", code: "OperationFailed" });
+  assert.deepEqual(entries[3]?.outcome, { status: "error", code: "QueryInvalid" });
+  assert.deepEqual(entries[4]?.targets, { env: "local", db: "accounts", connection: "primary" });
   for (const item of entries) {
     assert(item.durationMs >= 0);
     assert.equal(new Date(item.timestamp).toISOString(), item.timestamp);

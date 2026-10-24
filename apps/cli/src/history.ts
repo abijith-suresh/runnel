@@ -28,6 +28,7 @@ const errorCodes = [
   "NoDatabases",
   "DatabaseRequired",
   "DatabaseNotFound",
+  "TargetChanged",
   "CatalogInvalid",
   "CatalogUnavailable",
   "SecretNotFound",
