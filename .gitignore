@@ -10,3 +10,4 @@ coverage/
 Thumbs.db
 *.log
 .cache/
+.astro/

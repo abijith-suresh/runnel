@@ -13,6 +13,7 @@ import {
   validateChangeset,
   validateRepository,
   validateVersions,
+  website,
 } from "./release-policy.mjs";
 
 const note = (type = "patch", name = packages[2].name) =>
@@ -71,6 +72,7 @@ function fixture(t, pending = false) {
     "package-lock.json",
     ".changeset/config.json",
     ...packages.map((pkg) => `${pkg.directory}/package.json`),
+    `${website.directory}/package.json`,
   ]) {
     write(path, readFileSync(resolve(path), "utf8"));
   }
@@ -244,4 +246,69 @@ test("repository checks reject Effect v3, private adapters, core provider depend
   f.write(path, original);
   f.write(".changeset/pre.json", {});
   assert.throws(() => validateRepository(f.root), /Prerelease/);
+});
+
+test("the only private workspace is the isolated static website with pinned tooling", (t) => {
+  const f = fixture(t);
+  validateRepository(f.root);
+  const sitePath = `${website.directory}/package.json`;
+  const original = f.json(sitePath);
+  for (const mutation of [
+    (site) => {
+      site.private = false;
+    },
+    (site) => {
+      site.version = "0.0.1";
+    },
+    (site) => {
+      site.publishConfig = { access: "public" };
+    },
+    (site) => {
+      site.exports = "./dist/index.html";
+    },
+    (site) => {
+      site.dependencies = { [packages[0].name]: "0.0.7" };
+    },
+    (site) => {
+      site.devDependencies[packages[0].name] = "0.0.7";
+    },
+    (site) => {
+      site.devDependencies.astro = "^7.4.2";
+    },
+    (site) => {
+      site.devDependencies.astro = "7.4.3";
+    },
+  ]) {
+    const site = structuredClone(original);
+    mutation(site);
+    f.write(sitePath, site);
+    assert.throws(() => validateRepository(f.root));
+  }
+  f.write(sitePath, original);
+  const root = f.json("package.json");
+  root.workspaces.push("apps/another-private-app");
+  f.write("package.json", root);
+  assert.throws(() => validateRepository(f.root), /workspace boundaries/);
+});
+
+test("public artifacts cannot acquire private workspace, local path, or website runtime dependencies", (t) => {
+  const f = fixture(t);
+  const path = `${packages[2].directory}/package.json`;
+  const original = f.json(path);
+  for (const [field, name, version] of [
+    ["dependencies", website.name, "0.0.0"],
+    ["devDependencies", website.name, "0.0.0"],
+    ["optionalDependencies", website.name, "0.0.0"],
+    ["peerDependencies", website.name, "0.0.0"],
+    ["dependencies", "site", "file:../website"],
+    ["dependencies", "site", "link:../website"],
+    ["dependencies", "site", "workspace:*"],
+    ["dependencies", "astro", "7.4.2"],
+    ["optionalDependencies", "@astrojs/check", "0.9.12"],
+  ]) {
+    const manifest = structuredClone(original);
+    manifest[field] = { ...manifest[field], [name]: version };
+    f.write(path, manifest);
+    assert.throws(() => validateRepository(f.root), /private workspaces|website tooling/);
+  }
 });
