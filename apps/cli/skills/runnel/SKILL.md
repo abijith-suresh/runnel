@@ -41,8 +41,11 @@ that needs JavaScript. Database-user permissions are authoritative. Runnel adds
 no read/write approval gate. Aggregation stages and scripts can write data;
 result limits do not limit their side effects.
 
-Use `runnel <command> --help` for exact options. Offline details are available
-with `runnel guide query`, `runnel guide scripts`, `runnel guide errors`, and
+Use `runnel help` for available commands and `runnel help <command>` or
+`runnel <command> --help` for exact options. For a management action, use
+`runnel help database rename` or `runnel database rename --help`. These help
+commands need no operands, catalog, credentials, or database access.
+Offline details are available with `runnel guide query`, `runnel guide scripts`, `runnel guide errors`, and
 `runnel guide management`. `runnel guide all` prints the whole guide.
 `runnel skill path` prints this installed file's absolute path;
 `runnel skill print` prints its content. Use the agent tool's own skill-loading
@@ -166,7 +169,17 @@ coordinate it with any other work using this catalog.
 ## Errors
 
 Check exit status, the JSON envelope when present, and stderr. Fix the specific
-cause before retrying:
+cause before retrying.
+
+CLI syntax diagnostics distinguish unknown commands/options, missing operands or
+option values, invalid actions, and unsupported flags. They go to stderr with
+exit status 1 and empty stdout, before catalog access, daemon activity, or stdin
+reads. Follow the help pointer in the diagnostic. Help allows omitted operands
+but still rejects invalid actions and unsupported or malformed flags. Use
+`--option=<value>` for values starting with a dash, and `--` before operands
+starting with a dash. Tokens after `--` are operands, including `--help`.
+Use `-e local` or `-elocal` for short options, or `--env=local` with an equals
+sign. `-e=local` selects the literal name `=local`.
 
 - `EnvironmentRequired` or `EnvironmentNotFound`: use `runnel envs`, then supply
   an explicit configured `-e`. If no suitable target exists, have a human run

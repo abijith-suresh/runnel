@@ -263,7 +263,7 @@ test("script CLI input failures and missing environment do not start a daemon; s
     ).completed;
     assert.equal(unsupported.status, 1);
     assert.equal(unsupported.stdout, "");
-    assert.match(unsupported.stderr, /Unsupported arguments/);
+    assert.match(unsupported.stderr, /Unsupported option --args/);
     await assert.rejects(stat(join(f.directory, "daemon")), { code: "ENOENT" });
   } finally {
     await f.cleanup();

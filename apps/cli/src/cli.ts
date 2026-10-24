@@ -13,7 +13,8 @@ Named database access for agents.
 
 Usage:
   runnel [--help | --version]
-  runnel guide [overview | query | scripts | errors | management | all]
+  runnel help [<command> [<action>]]
+  runnel guide [overview | query | scripts | errors | management | all | skill]
   runnel skill [print | path]
   runnel setup
   runnel envs
@@ -53,7 +54,7 @@ Script options:
   --args, --args-file  Plain JSON arguments; file - reads stdin, default {}
   --timeout           Integer with one unit: 1500ms, 30s, 5m or 1h; 0 disables it
 
-Run runnel <command> --help for command-specific options.
+Run runnel help <command> or runnel <command> --help for command-specific options.
 Run runnel guide for agent instructions, or runnel skill path for the bundled SKILL.md.
 
 Scripts stay attached. Interrupting the CLI stops active script work without replay.
@@ -93,6 +94,7 @@ const managementActions: Record<string, readonly string[]> = {
   database: ["add", "rename", "remove"],
 };
 const commandUsage: Record<string, string> = {
+  help: "help [<command> [<action>]]",
   guide: "guide [overview | query | scripts | errors | management | all | skill]",
   skill: "skill [print | path]",
   setup: "setup",
@@ -180,10 +182,97 @@ function commandHelp(command: string, action?: string): string {
         : command === "setup"
           ? "\nA human must run setup with interactive stdin and stderr terminals.\nCredentials are entered through a hidden prompt, never arguments or piped input.\n"
           : "";
-  return `Runnel ${command}\n\nUsage:\n  runnel ${commandUsage[command]}\n\nOptions:\n  ${options.join("\n  ")}\n${details}\nOffline agent instructions: runnel guide. Bundled skill: runnel skill path.\n`;
+  const usage =
+    command === "connection" && action !== undefined
+      ? `connection ${action} <name> -e <environment>`
+      : command === "database" && action !== undefined
+        ? `database ${action} <alias> -e <environment>${
+            action === "add"
+              ? " --connection <name> --database <physical-name>"
+              : action === "rename"
+                ? " --to <new-alias>"
+                : ""
+          }`
+        : commandUsage[command];
+  return `Runnel ${command}\n\nUsage:\n  runnel ${usage}\n\nOptions:\n  ${options.join("\n  ")}\n${details}\nOffline agent instructions: runnel guide. Bundled skill: runnel skill path.\n`;
 }
+const actionChoices: Record<string, readonly string[]> = {
+  ...managementActions,
+  daemon: ["status", "reset", "stop"],
+  skill: ["print", "path"],
+  guide: ["overview", "query", "scripts", "errors", "management", "all", "skill"],
+};
+const options = {
+  help: { type: "boolean", short: "h" },
+  version: { type: "boolean", short: "v" },
+  env: { type: "string", short: "e" },
+  db: { type: "string", short: "d" },
+  output: { type: "string" },
+  connection: { type: "string" },
+  database: { type: "string" },
+  to: { type: "string" },
+  ...Object.fromEntries(queryOptions.map((key) => [key, { type: "string" }])),
+  ...Object.fromEntries(scriptOptions.map((key) => [key, { type: "string" }])),
+} as const;
+
+function supportsOption(command: string | undefined, action: string | undefined, key: string) {
+  if (key === "help") return true;
+  if (key === "version") return command === undefined;
+  if (key === "env")
+    return [
+      "connection",
+      "database",
+      "connections",
+      "databases",
+      "list",
+      "run",
+      ...queryCommands,
+    ].includes(command ?? "");
+  if (key === "db") return ["list", "run", ...queryCommands].includes(command ?? "");
+  if (key === "output") return command === "export";
+  if (key === "connection" || key === "database") return command === "database" && action === "add";
+  if (key === "to") return command === "database" && action === "rename";
+  if (scriptOptions.some((option) => option === key)) return command === "run";
+  return (
+    Object.hasOwn(optionCommands, key) &&
+    optionCommands[key as keyof typeof optionCommands].includes(command ?? "")
+  );
+}
+
 async function main(): Promise<number> {
-  let values: QueryValues &
+  // Tokenize without Node's diagnostics: they can include arbitrary argument values.
+  // Validate every token, including repeated options, before importing runtime modules.
+  const parsed = parseArgs({ options, strict: false, allowPositionals: true, tokens: true });
+  const helpCommand = parsed.positionals[0] === "help";
+  const positionals = helpCommand ? parsed.positionals.slice(1) : parsed.positionals;
+  const command = positionals[0];
+  const knownCommand = command !== undefined && Object.hasOwn(commandUsage, command);
+  const fail = (message: string): number => {
+    const target = knownCommand ? `help ${command}` : "help";
+    process.stderr.write(`${message} Run runnel ${target} for usage.\n`);
+    return 1;
+  };
+  if (command !== undefined && !knownCommand) return fail("Unknown command.");
+  for (const token of parsed.tokens) {
+    if (token.kind !== "option") continue;
+    const key = token.name;
+    if (!Object.hasOwn(options, key)) return fail("Unknown option.");
+    // Only fixed, known option names may appear in diagnostics.
+    const option = options[key as keyof typeof options];
+    if (
+      option.type === "string" &&
+      (token.value === undefined ||
+        (!token.inlineValue && token.value.startsWith("-") && token.value !== "-"))
+    )
+      return fail(
+        `Missing value for --${key}. Use --${key}=<value> for values starting with a dash.`
+      );
+    if (option.type === "boolean" && token.value !== undefined)
+      return fail(`Option --${key} does not take a value.`);
+    if ((helpCommand && key !== "help") || !supportsOption(command, positionals[1], key))
+      return fail(`Unsupported option --${key} for this command or action.`);
+  }
+  const values = parsed.values as QueryValues &
     ScriptValues & {
       help?: boolean;
       version?: boolean;
@@ -192,90 +281,45 @@ async function main(): Promise<number> {
       database?: string;
       to?: string;
     };
-  let positionals: string[];
-  try {
-    const parsed = parseArgs({
-      options: {
-        help: { type: "boolean", short: "h" },
-        version: { type: "boolean", short: "v" },
-        env: { type: "string", short: "e" },
-        db: { type: "string", short: "d" },
-        output: { type: "string" },
-        connection: { type: "string" },
-        database: { type: "string" },
-        to: { type: "string" },
-        ...Object.fromEntries(queryOptions.map((key) => [key, { type: "string" }])),
-        ...Object.fromEntries(scriptOptions.map((key) => [key, { type: "string" }])),
-      },
-      strict: true,
-      allowPositionals: true,
-    });
-    values = parsed.values as typeof values;
-    positionals = parsed.positionals;
-    const command = positionals[0];
-    if (
-      (!(["guide", "skill"].includes(command ?? "") && [1, 2].includes(positionals.length)) &&
-        positionals.length !==
-          (command !== undefined && Object.hasOwn(managementActions, command)
-            ? 3
-            : command === "daemon" || command === "run" || queryCommands.includes(command ?? "")
-              ? 2
-              : command === undefined
-                ? 0
-                : 1) &&
-        !(
-          values.help &&
-          (positionals.length === 1 ||
-            (command !== undefined &&
-              Object.hasOwn(managementActions, command) &&
-              positionals.length === 2))
-        )) ||
-      (command !== undefined && !Object.hasOwn(commandUsage, command)) ||
-      (command === "skill" &&
-        positionals[1] !== undefined &&
-        !["print", "path"].includes(positionals[1])) ||
-      (command === "daemon" &&
-        !(values.help && positionals.length === 1) &&
-        !["status", "reset", "stop"].includes(positionals[1] ?? "")) ||
-      (command !== undefined &&
-        Object.hasOwn(managementActions, command) &&
-        !(values.help && positionals.length === 1) &&
-        !managementActions[command]?.includes(positionals[1] ?? "")) ||
-      (values.env !== undefined &&
-        ![
-          "connection",
-          "database",
-          "connections",
-          "databases",
-          "list",
-          "run",
-          ...queryCommands,
-        ].includes(command ?? "")) ||
-      (values.db !== undefined && !["list", "run", ...queryCommands].includes(command ?? "")) ||
-      queryOptions.some(
-        (key) => values[key] !== undefined && !optionCommands[key].includes(command ?? "")
-      ) ||
-      (command !== "export" && values.output !== undefined) ||
-      (command !== "run" && scriptOptions.some((key) => values[key] !== undefined)) ||
-      ((values.connection !== undefined || values.database !== undefined) &&
-        !(command === "database" && positionals[1] === "add")) ||
-      (values.to !== undefined && !(command === "database" && positionals[1] === "rename")) ||
-      (values.version && command !== undefined)
-    )
-      throw new Error("Unsupported arguments");
-  } catch {
-    process.stderr.write("Unsupported arguments. Run runnel --help for available options.\n");
-    return 1;
+  const wantsHelp = helpCommand || values.help;
+  const choices =
+    command !== undefined && Object.hasOwn(actionChoices, command)
+      ? actionChoices[command]
+      : undefined;
+  if (choices !== undefined) {
+    const action = positionals[1];
+    if (action !== undefined && !choices.includes(action))
+      return fail(
+        `Invalid ${command} ${command === "guide" ? "topic" : "action"}. Choose ${choices.join(", ")}.`
+      );
+    if (!wantsHelp && action === undefined && command !== "skill" && command !== "guide")
+      return fail(`Missing ${command} action. Choose ${choices.join(", ")}.`);
   }
-
-  if (values.help || (positionals.length === 0 && !values.version)) {
-    process.stdout.write(
-      positionals[0] === undefined ? help : commandHelp(positionals[0], positionals[1])
-    );
+  const management = command !== undefined && Object.hasOwn(managementActions, command);
+  const maximum =
+    management && !helpCommand
+      ? 3
+      : choices !== undefined ||
+          (!helpCommand && (command === "run" || queryCommands.includes(command ?? "")))
+        ? 2
+        : command === undefined
+          ? 0
+          : 1;
+  if (positionals.length > maximum) return fail("Unexpected operand.");
+  if (!wantsHelp) {
+    if (management && positionals.length < 3)
+      return fail(
+        `Missing ${command === "connection" ? "connection name" : "database alias"} operand.`
+      );
+    if (command === "run" && positionals.length < 2) return fail("Missing script operand.");
+    if (queryCommands.includes(command ?? "") && positionals.length < 2)
+      return fail("Missing collection operand.");
+  }
+  if (wantsHelp || (positionals.length === 0 && !values.version)) {
+    process.stdout.write(command === undefined ? help : commandHelp(command, positionals[1]));
     return 0;
   }
 
-  const command = positionals[0];
   if (command === "guide" || command === "skill") {
     try {
       const { getAgentGuide, getAgentSkillPath, readAgentSkill } = await import("./agent-help.js");

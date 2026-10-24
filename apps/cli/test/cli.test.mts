@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -175,34 +184,244 @@ test("help takes precedence when both information flags are supplied", () => {
   }
 });
 
-test("unsupported commands, options, and malformed flags fail without stdout", () => {
+test("syntax recovery distinguishes failures, redacts arguments, and never waits for stdin or creates state", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-cli-recovery-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const blocked = join(directory, "blocked");
+  writeFileSync(blocked, "private invalid catalog path");
+  const cases: [string[], RegExp, string?][] = [
+    [["synthetic-secret"], /Unknown command/],
+    [["synthetic-secret", "--help"], /Unknown command/],
+    [["help", "synthetic-secret"], /Unknown command/],
+    [["find"], /Missing collection operand/, "find"],
+    [["describe"], /Missing collection operand/, "describe"],
+    [["count"], /Missing collection operand/, "count"],
+    [["aggregate"], /Missing collection operand/, "aggregate"],
+    [["export"], /Missing collection operand/, "export"],
+    [["run"], /Missing script operand/, "run"],
+    [["find", "--filter-file", "-"], /Missing collection operand/, "find"],
+    [["run", "--args-file", "-"], /Missing script operand/, "run"],
+    [["find", "users", "--synthetic-secret=value"], /Unknown option/, "find"],
+    [["find", "users", "-synthetic-secret"], /Unknown option/, "find"],
+    [["setup", "--uri", "synthetic-secret"], /Unknown option/, "setup"],
+    [["--help", "--synthetic-secret"], /Unknown option/],
+    [["find", "users", "--limit"], /Missing value for --limit/, "find"],
+    [["find", "users", "--limit", "--help"], /Missing value for --limit/, "find"],
+    [["find", "users", "--limit", "--synthetic-secret"], /Missing value for --limit/, "find"],
+    [["find", "users", "-e"], /Missing value for --env/, "find"],
+    [["run", "synthetic-secret.mjs", "--timeout", "--help"], /Missing value for --timeout/, "run"],
+    [["find", "--help=synthetic-secret"], /Option --help does not take a value/, "find"],
+    [["find", "--help=synthetic-secret", "--help"], /Option --help does not take a value/, "find"],
+    [["--help=true"], /Option --help does not take a value/],
+    [["daemon"], /Missing daemon action/, "daemon"],
+    [["daemon", "synthetic-secret", "--help"], /Invalid daemon action/, "daemon"],
+    [["connection"], /Missing connection action/, "connection"],
+    [["connection", "remove"], /Missing connection name operand/, "connection"],
+    [["connection", "synthetic-secret", "primary"], /Invalid connection action/, "connection"],
+    [["database", "rename"], /Missing database alias operand/, "database"],
+    [["database", "synthetic-secret", "shop", "--help"], /Invalid database action/, "database"],
+    [["skill", "synthetic-secret"], /Invalid skill action/, "skill"],
+    [["guide", "synthetic-secret", "--help"], /Invalid guide topic/, "guide"],
+    [["help", "database", "synthetic-secret"], /Invalid database action/, "database"],
+    [["setup", "-e", "synthetic-secret"], /Unsupported option --env/, "setup"],
+    [["daemon", "status", "-e", "local"], /Unsupported option --env/, "daemon"],
+    [["envs", "-d", "synthetic-secret"], /Unsupported option --db/, "envs"],
+    [["count", "--limit", "10", "--help"], /Unsupported option --limit/, "count"],
+    [["envs", "--format", "ejson"], /Unsupported option --format/, "envs"],
+    [["find", "users", "--to", "synthetic-secret"], /Unsupported option --to/, "find"],
+    [
+      ["database", "rename", "shop", "--database", "synthetic-secret"],
+      /Unsupported option --database/,
+      "database",
+    ],
+    [
+      ["database", "remove", "shop", "--connection", "primary"],
+      /Unsupported option --connection/,
+      "database",
+    ],
+    [["find", "users", "--version"], /Unsupported option --version/, "find"],
+    [["help", "find", "--limit", "10"], /Unsupported option --limit/, "find"],
+    [["--env", "synthetic-secret"], /Unsupported option --env/],
+    [["list", "synthetic-secret", "-e", "local"], /Unexpected operand/, "list"],
+    [["run", "synthetic-secret.mjs", "extra", "--help"], /Unexpected operand/, "run"],
+    [["help", "find", "synthetic-secret"], /Unexpected operand/, "find"],
+    [["--version", "find", "synthetic-secret"], /Unsupported option --version/, "find"],
+    [["--version", "synthetic-secret"], /Unknown command/],
+  ];
+  for (const home of [blocked, join(directory, "missing")]) {
+    for (const [args, category, command] of cases) {
+      const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
+        (resolve, reject) => {
+          const child = spawn(process.execPath, [executable, ...args], {
+            env: { ...process.env, RUNNEL_HOME: home },
+            stdio: ["pipe", "pipe", "pipe"],
+            timeout: 3000,
+          });
+          let stdout = "",
+            stderr = "";
+          child.stdout.on("data", (chunk: Buffer) => {
+            stdout += chunk.toString();
+          });
+          child.stderr.on("data", (chunk: Buffer) => {
+            stderr += chunk.toString();
+          });
+          child.once("error", reject);
+          child.once("close", (status) => resolve({ status, stdout, stderr }));
+          // Deliberately leave stdin open. Syntax errors must not consume input.
+        }
+      );
+      assert.equal(result.status, 1, JSON.stringify(args));
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, category);
+      assert(
+        result.stderr.includes(
+          `Run runnel help${command === undefined ? "" : ` ${command}`} for usage.`
+        )
+      );
+      assert.doesNotMatch(result.stderr, /synthetic-secret|mongodb:|CatalogInvalid/);
+      assert.deepEqual(readdirSync(directory), ["blocked"]);
+      assert.equal(readFileSync(blocked, "utf8"), "private invalid catalog path");
+    }
+  }
+});
+
+test("help verb matches command help and management action help without runtime imports", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-cli-lazy-help-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  // Copy only the CLI. Any eager runtime import would fail in this directory.
+  const copied = join(directory, "cli.mjs");
+  copyFileSync(executable, copied);
   for (const args of [
-    ["find"],
-    ["--env", "dint"],
-    ["setup", "-e", "local"],
-    ["setup", "--uri", "synthetic-secret"],
-    ["--help", "--unknown"],
-    ["--version", "extra"],
-    ["--help=true"],
-    ["daemon"],
-    ["daemon", "pause"],
-    ["daemon", "status", "-e", "local"],
-    ["envs", "-d", "accounts"],
-    ["list", "users", "-e", "local"],
-    ["count", "users", "--limit", "10"],
-    ["envs", "--format", "ejson"],
-    ["unknown", "--help"],
-    ["run", "example.mjs", "extra", "--help"],
-    ["daemon", "pause", "--help"],
-    ["count", "--limit", "10", "--help"],
+    [],
+    ["help"],
+    ["--help"],
+    ["help", "help"],
+    ...[
+      "guide",
+      "skill",
+      "setup",
+      "envs",
+      "connections",
+      "databases",
+      "connection",
+      "database",
+      "history",
+      "list",
+      "describe",
+      "find",
+      "count",
+      "aggregate",
+      "export",
+      "run",
+      "daemon",
+    ].flatMap((command) => [
+      ["help", command],
+      [command, "--help"],
+    ]),
+    ...[
+      ["connection", "rotate"],
+      ["connection", "remove"],
+      ["database", "add"],
+      ["database", "rename"],
+      ["database", "remove"],
+    ].flatMap((target) => [
+      ["help", ...target],
+      [...target, "--help"],
+    ]),
   ]) {
-    const result = run(args);
-    assert.equal(result.status, 1);
-    assert.equal(result.stdout, "");
-    assert.equal(
-      result.stderr,
-      "Unsupported arguments. Run runnel --help for available options.\n"
-    );
+    const result = spawnSync(process.execPath, [copied, ...args], {
+      env: { ...process.env, RUNNEL_HOME: "invalid-relative-catalog" },
+      encoding: "utf8",
+      timeout: 3000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.match(result.stdout, /Usage:/);
+    assert.equal(result.stdout, run(args).stdout);
+  }
+  assert.equal(run(["help"]).stdout, run([]).stdout);
+  assert.equal(run(["help", "find"]).stdout, run(["find", "--help"]).stdout);
+  const rename = run(["help", "database", "rename"]).stdout;
+  assert.match(rename, /runnel database rename <alias> -e <environment> --to <new-alias>/);
+  assert(!rename.includes("--connection"));
+  const add = run(["help", "database", "add"]).stdout;
+  assert.match(add, /--connection <name> --database <physical-name>/);
+  assert(!add.includes("--to"));
+});
+
+test("double dash, equals, short options and JSON/stdin strings retain their argument meaning", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "runnel-cli-values-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let index = 0;
+  for (const [args, code, message] of [
+    [
+      ["find", "users", "-e", "local", "--limit=-1", "--filter-file", "-"],
+      "InputInvalid",
+      /--limit/,
+    ],
+    [["find", "users", "-elocal", "--skip=-1", "--filter-file", "-"], "InputInvalid", /--skip/],
+    [
+      ["run", "entry.mjs", "-e", "local", "--timeout=-1s", "--args-file", "-"],
+      "InputInvalid",
+      /--timeout/,
+    ],
+    [["find", "-e", "local", "--", "--help"], "EnvironmentNotFound", /setup/],
+    [["find", "-e", "local", "--", "-users"], "EnvironmentNotFound", /setup/],
+    [
+      [
+        "find",
+        "users",
+        "--env=-local",
+        "--filter",
+        '{"name":"--help","active":true}',
+        "--sort",
+        '{"n":-1}',
+      ],
+      "EnvironmentNotFound",
+      /setup/,
+    ],
+    [["find", "users", "-e", "local", "--filter-file", "-"], "EnvironmentNotFound", /setup/],
+    [
+      ["run", "entry.mjs", "-e", "local", "--timeout=0", "--args-file", "-"],
+      "EnvironmentNotFound",
+      /setup/,
+    ],
+  ] as const) {
+    const home = join(directory, `missing-${index++}`);
+    const result = spawnSync(process.execPath, [executable, ...args], {
+      env: { ...process.env, RUNNEL_HOME: home },
+      encoding: "utf8",
+      timeout: 15000,
+      input: '{"flag":"--help","value":-1}',
+    });
+    try {
+      assert.ifError(result.error);
+      assert.equal(
+        result.signal,
+        null,
+        `CLI terminated by ${result.signal}: ${JSON.stringify(args)}`
+      );
+      assert.equal(result.status, 1, result.stderr);
+      assert.equal(result.stderr, "");
+      const output = JSON.parse(result.stdout);
+      assert.equal(output.error.code, code, result.stdout);
+      assert.match(output.error.message, message);
+      if (code === "InputInvalid") assert(!existsSync(home));
+      assert(!existsSync(join(home, "catalog.json")));
+    } finally {
+      // Syntactically valid queries reach the worker and fail on an unconfigured
+      // synthetic environment. Stop that worker before removing its private home.
+      if (code === "EnvironmentNotFound") {
+        const stopped = spawnSync(process.execPath, [executable, "daemon", "stop"], {
+          env: { ...process.env, RUNNEL_HOME: home },
+          encoding: "utf8",
+          timeout: 10000,
+        });
+        assert.ifError(stopped.error);
+        assert.equal(stopped.signal, null, `Daemon stop terminated by ${stopped.signal}`);
+        assert.equal(stopped.status, 0, stopped.stderr);
+      }
+    }
   }
 });
 
