@@ -3,11 +3,11 @@ import { createMongoPool, type MongoPool } from "@abijith-suresh/runnel-mongodb"
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { BSON } from "mongodb";
-import { readCatalog } from "./catalog.js";
+import { type Catalog, readCatalog } from "./catalog.js";
 import { executeQuery, prepareQuery } from "./mongodb-query.js";
 import { QueryError } from "./query-input.js";
 import { createScriptRunner, prepareScript } from "./script-runner.js";
-import { credentialStore, type SecretError } from "./secrets.js";
+import { credentialStore } from "./secrets.js";
 import {
   bounded,
   decodeOperation,
@@ -31,6 +31,8 @@ const operationMessages = {
   CatalogInvalid: "The catalog mapping or schema is invalid. Check names and secret references.",
   CatalogUnavailable: "Cannot read the Runnel catalog. Check its path, permissions, and format.",
   SecretNotFound: "The configured credential is missing. Run setup again.",
+  TargetChanged:
+    "The connection mappings changed while resolving credentials. Start a new operation to use the current catalog.",
   SecretUnavailable: "OS credential storage is unavailable or locked. Unlock it and retry.",
   SecretReferenceInvalid: "The credential reference is invalid.",
   SecretInvalid: "The connection secret is empty or exceeds the size limit.",
@@ -123,77 +125,89 @@ export function workerOperations(
   secrets = credentialStore()
 ) {
   const scripts = createScriptRunner();
-  type Credentials = Map<string, Promise<Result.Result<string, SecretError>>>;
-  const database = async (
-    target: { env?: string; db?: string },
-    credentials: Credentials,
-    missingReference?: string,
-    refreshes = 0
-  ): Promise<{ env: string; db: string; handle: Awaited<ReturnType<MongoPool["database"]>> }> => {
-    const resolved = await Effect.runPromise(
-      Effect.gen(function* () {
-        const catalog = yield* readCatalog(directory);
-        const available = new Map(
-          Object.entries(catalog.environments).map(([env, value]) => [
-            env,
-            new Set(Object.keys(value.databases)),
-          ])
-        );
-        const selected = resolveDatabaseTarget(available, {
-          ...(target.env === undefined ? {} : { env: target.env }),
-          ...(target.db === undefined ? {} : { db: target.db }),
-        });
-        if (Result.isFailure(selected))
-          return yield* Effect.fail({
-            code: selected.failure._tag,
-            message: targetMessages[selected.failure._tag],
-          });
-        const { env, db } = selected.success;
-        const environment = catalog.environments[env];
-        const alias = environment?.databases[db];
-        const connection = alias && environment?.connections[alias.connection];
-        if (!alias || !connection)
-          return yield* Effect.fail({
-            code: "CatalogInvalid",
-            message: "The catalog mapping is invalid.",
-          });
-        return { env, db, alias, reference: connection.secretRef };
-      }).pipe(Effect.result)
-    );
-    if (Result.isFailure(resolved))
-      throw new QueryError(resolved.failure.code, resolved.failure.message);
-    const { env, db, alias, reference } = resolved.success;
-    if (reference === missingReference)
-      throw new QueryError("SecretNotFound", operationMessages.SecretNotFound);
-    const key = JSON.stringify([env, alias.connection]);
-    let pending = credentials.get(key);
-    if (!pending) {
-      pending = Effect.runPromise(secrets.read(reference).pipe(Effect.result));
-      credentials.set(key, pending);
-    }
-    const secret = await pending;
-    if (Result.isFailure(secret)) {
-      if (credentials.get(key) === pending) credentials.delete(key);
-      // Rotation can remove a reference after our catalog read. Resolve again only
-      // before acquiring a handle; database work is never replayed.
-      if (secret.failure.code === "SecretNotFound" && refreshes < 2)
-        return database(target, credentials, reference, refreshes + 1);
-      throw new QueryError(secret.failure.code, secret.failure.message);
-    }
-    const uri = secret.success;
-    const handle = await pool.database(
-      JSON.stringify([env, alias.connection]),
-      uri,
-      alias.database
-    );
+  const catalogSnapshot = async (): Promise<Catalog> => {
+    const result = await Effect.runPromise(readCatalog(directory).pipe(Effect.result));
+    if (Result.isFailure(result)) throw new QueryError(result.failure.code, result.failure.message);
+    return result.success;
+  };
+  const connectionMappings = (catalog: Catalog, env: string, connection: string) =>
+    Object.entries(catalog.environments[env]?.databases ?? {})
+      .filter(([, alias]) => alias.connection === connection)
+      .map(([name, alias]): [string, string] => [name, alias.database])
+      .sort(([left], [right]) => left.localeCompare(right));
 
-    return { env, db, handle };
+  const operationDatabase = () => {
+    let snapshot: Promise<Catalog> | undefined;
+    // The shared promise owns the actual reference and its bounded retry, so a
+    // parallel caller cannot mistake another read's failure for its own reference.
+    const credentials = new Map<string, Promise<string>>();
+    const credential = async (
+      catalog: Catalog,
+      env: string,
+      connection: string,
+      initialReference: string
+    ): Promise<string> => {
+      let reference = initialReference;
+      for (let refreshes = 0; ; refreshes++) {
+        const secret = await Effect.runPromise(secrets.read(reference).pipe(Effect.result));
+        if (Result.isSuccess(secret)) return secret.success;
+        if (secret.failure.code !== "SecretNotFound" || refreshes === 2)
+          throw new QueryError(secret.failure.code, secret.failure.message);
+        // Only retry credential resolution before acquiring any handle for this
+        // connection. Keep the snapshot's mappings, or fail instead of mixing them
+        // with a replacement registration's credential. Never replay database work.
+        const current = await catalogSnapshot();
+        const replacement = current.environments[env]?.connections[connection];
+        if (
+          !replacement ||
+          JSON.stringify(connectionMappings(current, env, connection)) !==
+            JSON.stringify(connectionMappings(catalog, env, connection))
+        )
+          throw new QueryError("TargetChanged", operationMessages.TargetChanged);
+        if (replacement.secretRef === reference)
+          throw new QueryError(secret.failure.code, secret.failure.message);
+        reference = replacement.secretRef;
+      }
+    };
+    return async (target: { env?: string; db?: string }) => {
+      // Pin all named mappings together, including aliases first visited later in
+      // a script. Only the next operation observes catalog additions and renames.
+      snapshot ??= catalogSnapshot();
+      const catalog = await snapshot;
+      const available = new Map(
+        Object.entries(catalog.environments).map(([env, value]) => [
+          env,
+          new Set(Object.keys(value.databases)),
+        ])
+      );
+      const selected = resolveDatabaseTarget(available, {
+        ...(target.env === undefined ? {} : { env: target.env }),
+        ...(target.db === undefined ? {} : { db: target.db }),
+      });
+      if (Result.isFailure(selected))
+        throw new QueryError(selected.failure._tag, targetMessages[selected.failure._tag]);
+      const { env, db } = selected.success;
+      const environment = catalog.environments[env];
+      const alias = environment?.databases[db];
+      const connection = alias && environment?.connections[alias.connection];
+      if (!alias || !connection)
+        throw new QueryError("CatalogInvalid", "The catalog mapping is invalid.");
+      const key = JSON.stringify([env, alias.connection]);
+      let pending = credentials.get(key);
+      if (!pending) {
+        pending = credential(catalog, env, alias.connection, connection.secretRef);
+        credentials.set(key, pending);
+      }
+      const uri = await pending;
+      const handle = await pool.database(key, uri, alias.database);
+      return { env, db, handle };
+    };
   };
   return {
     async execute(input: WorkerOperation): Promise<WorkerResult> {
-      // worker.ts serializes operations. Pin each connection's first credential
-      // for this operation so later script connects cannot retire an active db.
-      const credentials: Credentials = new Map();
+      // worker.ts serializes operations. Keep mappings and credentials local to
+      // one operation so a later connect cannot retire an already acquired handle.
+      const database = operationDatabase();
       try {
         let decoded: WorkerOperation;
         try {
@@ -232,12 +246,12 @@ export function workerOperations(
           return boundedResult(
             await scripts.execute(
               request,
-              () => database(request, credentials),
-              async (target) => (await database(target, credentials)).handle,
+              () => database(request),
+              async (target) => (await database(target)).handle,
               scriptArgs === undefined ? {} : scriptArgs
             )
           );
-        const { env, db, handle } = await database(request, credentials);
+        const { env, db, handle } = await database(request);
         if (request.operation !== "list")
           return boundedResult(await executeQuery(handle, request, env, db, prepared ?? {}));
         const cursor = handle.listCollections(

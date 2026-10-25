@@ -171,6 +171,17 @@ the worker replaces the old connection pool when the URI changes. Already active
 work pins each connection's credentials until that operation finishes, so a
 script's later `connect()` cannot close its original database handle.
 
+Each operation uses the catalog snapshot from its first database resolution,
+including aliases first visited by a later `connect()`. Alias additions, removals,
+renames, and replacement registrations take effect on the next operation.
+Parallel connects share one credential read and its outcome for each connection.
+If a credential disappears before it can be read, resolution may follow at most
+two newer references, provided that connection's complete alias mappings still
+match the snapshot. Changed mappings cause `TargetChanged` before acquiring a
+handle for that connection. This can also reject a concurrent alias edit during
+rotation. Start a new operation to use the edited catalog; inspect state first
+if a script may already have written data. Database operations are never replayed.
+
 Aliases can be managed without accessing MongoDB or credentials:
 
 ```sh
