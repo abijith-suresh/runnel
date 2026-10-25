@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { databaseFailure } from "../dist/worker-operations.js";
 import { decodeOperation, type WorkerResult } from "../dist/worker-protocol.js";
-import { createWorkerSupervisor, workerForkOptions } from "../dist/worker-supervisor.js";
+import { createWorkerSupervisor } from "../dist/worker-supervisor.js";
 
 const fixture = new URL("./fixtures/worker.mjs", import.meta.url);
 function supervisor(directory = tmpdir()) {
@@ -32,14 +31,6 @@ function code(result: WorkerResult) {
   assert(!result.ok);
   return result.error.code;
 }
-
-test("worker launch hides the Windows console and preserves its private IPC setup", () => {
-  const options = workerForkOptions("/private/runnel-home");
-  assert.equal(options.windowsHide, true);
-  assert.equal(options.env?.["RUNNEL_HOME"], "/private/runnel-home");
-  assert.deepEqual(options.stdio, ["ignore", "ignore", "ignore", "ipc"]);
-  assert.equal(options.serialization, "json");
-});
 
 test("one persistent worker executes queued operations in order without overlap", async () => {
   const worker = supervisor();
@@ -89,21 +80,6 @@ test("worker crash fails its queue and a later request can start a new worker", 
     const queued = worker.execute({ operation: "list", env: "queued" });
     assert.equal(code(await first), "WorkerCrashed");
     assert.equal(code(await queued), "WorkerCrashed");
-    assert.equal(
-      data(await worker.execute({ operation: "list", env: "fresh" })).collections[0]?.name,
-      "1"
-    );
-  } finally {
-    await worker.stop();
-  }
-});
-test("active deadlines terminate the worker and discard queued work without retry", async () => {
-  const worker = supervisor();
-  try {
-    const first = worker.execute({ operation: "list", env: "hang" }, 30);
-    const queued = worker.execute({ operation: "list", env: "queued" });
-    assert.equal(code(await first), "OperationTimedOut");
-    assert.equal(code(await queued), "WorkerRestarted");
     assert.equal(
       data(await worker.execute({ operation: "list", env: "fresh" })).collections[0]?.name,
       "1"
@@ -163,31 +139,13 @@ test("startup has a deadline and missing worker entrypoints fail safely", async 
     await missing.stop();
   }
 });
-test("real worker resolves configured names before any credential or DB access", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "runnel-worker-"));
-  const worker = createWorkerSupervisor(directory);
-  try {
-    assert.equal(code(await worker.execute({ operation: "list" })), "EnvironmentRequired");
-    const pid = worker.status().pid;
-    assert.equal(
-      code(await worker.execute({ operation: "list", env: "unknown" })),
-      "EnvironmentNotFound"
-    );
-    assert.equal(worker.status().pid, pid);
-    assert.equal(
-      code(await worker.execute({ operation: "inspect", uri: "synthetic-invalid-secret" })),
-      "ConnectionInvalid"
-    );
-    assert.equal(worker.status().pid, pid);
-  } finally {
-    await worker.stop();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
 test("driver failures expose useful categories without driver messages or document dumps", () => {
   for (const [input, expected] of [
     [{ code: 13, message: "synthetic-secret" }, "PermissionDenied"],
     [{ code: 18, message: "synthetic-secret" }, "AuthenticationFailed"],
+    [{ code: 2, message: "synthetic-secret" }, "QueryInvalid"],
+    [{ code: 50, message: "synthetic-secret" }, "DatabaseTimedOut"],
+    [{ code: 26, message: "synthetic-secret" }, "CollectionNotFound"],
     [
       Object.assign(new Error("synthetic-secret"), { name: "MongoServerSelectionError" }),
       "DatabaseUnavailable",

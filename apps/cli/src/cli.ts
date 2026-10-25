@@ -2,11 +2,13 @@
 
 import { readFileSync } from "node:fs";
 import { type ParseArgsConfig, parseArgs } from "node:util";
+import { agentGuideTopics } from "./agent-help.js";
 import type { DaemonResponse } from "./daemon-protocol.js";
 import type { QueryCommand, QueryValues } from "./query-command.js";
 import type { ScriptValues } from "./script-command.js";
 import type { SetupResult } from "./setup.js";
 
+const guideUsage = `guide [${agentGuideTopics.join(" | ")}]`;
 const help = `Runnel
 
 Named database access for agents.
@@ -14,7 +16,7 @@ Named database access for agents.
 Usage:
   runnel [--help | --version]
   runnel help [<command> [<action>]]
-  runnel guide [overview | query | scripts | errors | management | all | skill]
+  runnel ${guideUsage}
   runnel skill [print | path]
   runnel setup
   runnel envs
@@ -108,8 +110,8 @@ const findOptions = [
 const commands: Record<string, CommandDefinition> = {
   help: { usage: "help [<command> [<action>]]" },
   guide: {
-    usage: "guide [overview | query | scripts | errors | management | all | skill]",
-    actions: ["overview", "query", "scripts", "errors", "management", "all", "skill"],
+    usage: guideUsage,
+    actions: agentGuideTopics,
     defaultAction: true,
   },
   skill: { usage: "skill [print | path]", actions: ["print", "path"], defaultAction: true },

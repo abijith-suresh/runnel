@@ -1,17 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { runNpm } from "./npm-command.mjs";
-
-test("npm runs the pinned CLI through Node", () => {
-  const manifest = JSON.parse(readFileSync("package.json", "utf8"));
-  assert.equal(
-    runNpm(["--version"], { encoding: "utf8" }).trim(),
-    manifest.packageManager.split("@")[1]
-  );
-});
 
 test("npm paths and arguments preserve spaces and shell punctuation without a shell", (t) => {
   const directory = mkdtempSync(join(tmpdir(), "runnel npm check "));

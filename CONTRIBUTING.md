@@ -36,11 +36,17 @@ npm run verify
 
 Typechecking checks dependency declarations as well as source, with
 `skipLibCheck` disabled. Package scripts can be selected with npm's `--workspace`
-flag. `npm run verify` needs no database or credential configuration. Add focused
-tests for the behavior you change; CI owns the full suite. Keep credentials, real
-URIs, returned documents, local catalogs, and operation histories out of the
-repository. The optional
-`check:native-credentials` command accesses OS storage, verifies persistence from
+flag. `npm run verify` needs no database or credential configuration.
+
+Keep detailed test cases with the module that implements the behavior. CLI and
+packaging checks should prove commands are wired and shipped correctly, using
+representative cases rather than repeating the unit matrix. Test observable
+outcomes, not helper configuration or driver-private fields. Add a regression
+case when the existing suite does not already cover the failure.
+
+Keep credentials, real URIs, returned documents, local catalogs, and operation
+histories out of the repository. The optional `check:native-credentials` command
+accesses OS storage, verifies persistence from
 a second process, and removes its synthetic entry. Run packaging and versioning
 helpers through npm so they inherit the npm JavaScript entry point.
 See [local testing](#local-testing) for the MongoDB probe and manual CLI use.

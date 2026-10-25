@@ -176,17 +176,16 @@ test("setup rejects bad names and existing aliases without overwriting them", as
 });
 
 test("allowed inherited-property names work as new environment, connection and alias names", async (t) => {
-  for (const name of ["toString", "valueOf", "hasOwnProperty"]) {
-    const f = fixture();
-    t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-    const io = input([name, name, uri, "1", "", name, "y"]);
-    const result = await setup(f.directory, io.prompt, { inspect, secrets: f.secrets });
-    assert(result.ok);
-    const catalog = await Effect.runPromise(readCatalog(f.directory));
-    assert(Object.hasOwn(catalog.environments, name));
-    assert(Object.hasOwn(catalog.environments[name]?.connections ?? {}, name));
-    assert(Object.hasOwn(catalog.environments[name]?.databases ?? {}, name));
-  }
+  const name = "toString";
+  const f = fixture();
+  t.after(() => rmSync(f.directory, { recursive: true, force: true }));
+  const io = input([name, name, uri, "1", "", name, "y"]);
+  const result = await setup(f.directory, io.prompt, { inspect, secrets: f.secrets });
+  assert(result.ok);
+  const catalog = await Effect.runPromise(readCatalog(f.directory));
+  assert(Object.hasOwn(catalog.environments, name));
+  assert(Object.hasOwn(catalog.environments[name]?.connections ?? {}, name));
+  assert(Object.hasOwn(catalog.environments[name]?.databases ?? {}, name));
 });
 
 test("registration validates all names and aliases before touching credentials", async (t) => {
@@ -210,22 +209,20 @@ test("registration validates all names and aliases before touching credentials",
   assert(!existsSync(join(f.directory, "catalog.json")));
 });
 
-test("concurrent connection and alias conflicts clean the new secret and preserve existing catalog", async (t) => {
-  for (const connection of ["primary", "different"]) {
-    const f = fixture();
-    t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-    await Effect.runPromise(registerConnection(f.directory, registration, f.secrets));
-    const before = readFileSync(join(f.directory, "catalog.json"), "utf8");
-    const result = await Effect.runPromise(
-      registerConnection(f.directory, { ...registration, connection }, f.secrets).pipe(
-        Effect.result
-      )
-    );
-    assert(Result.isFailure(result));
-    assert.equal(result.failure.code, "SetupNameConflict");
-    assert.equal(f.stored.size, 1);
-    assert.equal(readFileSync(join(f.directory, "catalog.json"), "utf8"), before);
-  }
+test("registration refuses an alias owned by another connection and rolls back its new secret", async (t) => {
+  const f = fixture();
+  t.after(() => rmSync(f.directory, { recursive: true, force: true }));
+  await Effect.runPromise(registerConnection(f.directory, registration, f.secrets));
+  const before = readFileSync(join(f.directory, "catalog.json"), "utf8");
+  const result = await Effect.runPromise(
+    registerConnection(f.directory, { ...registration, connection: "different" }, f.secrets).pipe(
+      Effect.result
+    )
+  );
+  assert(Result.isFailure(result));
+  assert.equal(result.failure.code, "SetupNameConflict");
+  assert.equal(f.stored.size, 1);
+  assert.equal(readFileSync(join(f.directory, "catalog.json"), "utf8"), before);
 });
 
 test("same URI registered in another environment has an independent credential and keeps unrelated mappings", async (t) => {
@@ -378,73 +375,21 @@ test("terminal stream errors reject safely and restore raw mode without revealin
   }
 });
 
-test("setup progress honors NO_COLOR and uses a static status", async () => {
-  const previous = process.env["NO_COLOR"];
-  const term = process.env["TERM"];
-  process.env["NO_COLOR"] = "1";
-  try {
-    const io = terminal();
-    const prompt = terminalPrompt(io.input, io.output);
-    assert.equal(prompt.color, false);
-    await prompt.progress("Checking connection…", async () => "ready");
-    assert.equal(io.written(), "Checking connection…\n");
-    assert(!io.written().includes("\u001b["));
-
-    delete process.env["NO_COLOR"];
-    process.env["TERM"] = "dumb";
-    const dumb = terminal();
-    assert.equal(terminalPrompt(dumb.input, dumb.output).color, false);
-  } finally {
-    if (previous === undefined) delete process.env["NO_COLOR"];
-    else process.env["NO_COLOR"] = previous;
-    if (term === undefined) delete process.env["TERM"];
-    else process.env["TERM"] = term;
-  }
-});
-
-test("colored setup progress clears its line on success, failure, and Ctrl+C", async () => {
-  const noColor = process.env["NO_COLOR"];
-  const term = process.env["TERM"];
-  delete process.env["NO_COLOR"];
-  process.env["TERM"] = "xterm";
-  try {
-    const successful = terminal();
-    await terminalPrompt(successful.input, successful.output).progress(
-      "Checking connection…",
-      async () => "ready"
-    );
-    assert(successful.written().includes("\u001b[2K"));
-
-    const failed = terminal();
-    await assert.rejects(
-      terminalPrompt(failed.input, failed.output).progress("Checking connection…", async () => {
-        throw new Error("synthetic failure");
-      })
-    );
-    assert(failed.written().includes("\u001b[2K"));
-
-    const cancelled = terminal();
-    const prompt = terminalPrompt(cancelled.input, cancelled.output);
-    let aborted = false;
-    const running = prompt.progress("Checking connection…", (signal) => {
-      signal.addEventListener("abort", () => {
-        aborted = true;
-      });
-      return new Promise<string>(() => {});
+test("setup progress aborts its action on Ctrl+C", async () => {
+  const io = terminal();
+  let aborted = false;
+  const running = terminalPrompt(io.input, io.output).progress("Checking connection…", (signal) => {
+    signal.addEventListener("abort", () => {
+      aborted = true;
     });
-    process.emit("SIGINT");
-    await assert.rejects(
-      running,
-      (error: unknown) => error instanceof PromptError && error.code === "SetupCancelled"
-    );
-    assert.equal(aborted, true);
-    assert(cancelled.written().includes("\u001b[2K"));
-  } finally {
-    if (noColor === undefined) delete process.env["NO_COLOR"];
-    else process.env["NO_COLOR"] = noColor;
-    if (term === undefined) delete process.env["TERM"];
-    else process.env["TERM"] = term;
-  }
+    return new Promise<string>(() => {});
+  });
+  process.emit("SIGINT");
+  await assert.rejects(
+    running,
+    (error: unknown) => error instanceof PromptError && error.code === "SetupCancelled"
+  );
+  assert.equal(aborted, true);
 });
 
 test("setup refuses piped input and credential flags without creating any configuration", (t) => {

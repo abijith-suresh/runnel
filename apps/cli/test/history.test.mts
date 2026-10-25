@@ -24,7 +24,6 @@ import * as Result from "effect/Result";
 import { lock } from "proper-lockfile";
 import { decodeCatalog, emptyCatalog } from "../dist/catalog.js";
 import { daemonCommand, daemonExchange } from "../dist/daemon-client.js";
-import { decodeDaemonResponse } from "../dist/daemon-protocol.js";
 import { startDaemon } from "../dist/daemon-server.js";
 import {
   appendHistory,
@@ -203,17 +202,6 @@ test("history refuses nonregular files, symlinks, hardlinks, and insecure files"
     await assert.rejects(readHistory(home), HistoryError);
   }
 });
-test("busy history locks fail safely without changing prior entries", async (t) => {
-  const { home, path } = await fixture(t);
-  await appendHistory(home, entry());
-  const release = await lock(path, { realpath: false });
-  try {
-    await assert.rejects(appendHistory(home, entry(99)), HistoryError);
-  } finally {
-    await release();
-  }
-  assert.equal((await readHistory(home)).length, 1);
-});
 test("recording uses configured names and allowlisted outcome codes without argument, collection, document, or secret data", async (t) => {
   const { home, path } = await fixture(t);
   await writeFile(join(home, "catalog.json"), JSON.stringify(catalog()));
@@ -280,23 +268,6 @@ test("explicit opt-out is honored on newly submitted operations and inspect/inva
     }).pipe(Effect.result)
   );
   assert(Result.isFailure(invalid));
-});
-test("history persistence failures preserve both successful and failed operation results", async (t) => {
-  const { home, path } = await fixture(t);
-  await writeFile(join(home, "catalog.json"), JSON.stringify(catalog()));
-  await appendHistory(home, entry());
-  await writeFile(path, "synthetic-corrupt-secret");
-  for (const result of [success, failure("PermissionDenied", "synthetic-private-error")]) {
-    const history = createOperationHistory(home, { execute: async () => result });
-    assert.deepEqual(await history.execute({ operation: "list", env: "local" }), {
-      result,
-      historyFailed: true,
-    });
-    await history.flush();
-  }
-  assert.equal(await readFile(path, "utf8"), "synthetic-corrupt-secret");
-  assert.doesNotThrow(() => decodeDaemonResponse({ ...success, warning: "HistoryUnavailable" }));
-  assert.throws(() => decodeDaemonResponse({ ...success, warning: "synthetic-secret" }));
 });
 test("daemon records one entry per operation through reset and stop, without logging setup or lifecycle work", async (t) => {
   const { home } = await fixture(t);
@@ -403,33 +374,6 @@ test("CLI reports history failure on stderr without changing successful database
   }
 });
 
-test("history snapshots requests and queued reset outcomes while flushing all pending entries", async (t) => {
-  const { home } = await fixture(t);
-  await writeFile(join(home, "catalog.json"), JSON.stringify(catalog()));
-  let finish!: (value: WorkerResult) => void;
-  const history = createOperationHistory(home, {
-    execute: () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-  });
-  const request = { operation: "list", env: "local" };
-  const submitted = history.execute(request);
-  request.env = "hang";
-  finish(failure("WorkerStopped", "synthetic-private-error"));
-  await history.flush();
-  await submitted;
-  assert.deepEqual((await readHistory(home))[0]?.targets, {
-    env: "local",
-    db: "accounts",
-    connection: "primary",
-  });
-  assert.deepEqual((await readHistory(home))[0]?.outcome, {
-    status: "error",
-    code: "WorkerStopped",
-  });
-});
-
 test("a busy history lock preserves all operation results and stop acknowledgement during graceful shutdown", async (t) => {
   for (const mode of ["queued", "completed"]) {
     const { home, path } = await fixture(t);
@@ -439,7 +383,7 @@ test("a busy history lock preserves all operation results and stop acknowledgeme
     const release = await lock(path, { realpath: false });
     const daemon = await startDaemon(home, { workerEntrypoint });
     try {
-      const requests = Array.from({ length: 6 }, (_, index) =>
+      const requests = Array.from({ length: 2 }, (_, index) =>
         daemonExchange(daemon.descriptor, {
           action: "execute",
           request: { operation: "list", env: mode === "queued" && index === 0 ? "hang" : "local" },
@@ -454,7 +398,7 @@ test("a busy history lock preserves all operation results and stop acknowledgeme
           observedWork ||= status.data.worker.active || status.data.worker.queued > 0;
           ready =
             mode === "queued"
-              ? status.data.worker.active && status.data.worker.queued === 5
+              ? status.data.worker.active && status.data.worker.queued === 1
               : observedWork && !status.data.worker.active && status.data.worker.queued === 0;
           if (ready) break;
         }

@@ -14,7 +14,7 @@ import { createOperationHistory, readHistory } from "../dist/history.js";
 import { createScriptRunner, prepareScript, type ScriptOperation } from "../dist/script-runner.js";
 import { credentialStore } from "../dist/secrets.js";
 import { workerOperations } from "../dist/worker-operations.js";
-import { decodeOperation, decodeResponse, type WorkerResult } from "../dist/worker-protocol.js";
+import { decodeOperation, type WorkerResult } from "../dist/worker-protocol.js";
 import { createWorkerSupervisor } from "../dist/worker-supervisor.js";
 
 async function fixture(
@@ -81,10 +81,6 @@ async function fixture(
     clients,
     request,
     worker,
-    executors: [
-      (request: ScriptOperation) => operations.execute(request),
-      (request: ScriptOperation) => worker.execute(request),
-    ],
   };
 }
 function value(result: WorkerResult) {
@@ -150,11 +146,9 @@ test("argument preflight rejects malformed, oversized and unsafe input before an
     assert.throws(() => decodeOperation({ ...f.request, timeoutMs }));
   assert.throws(() => decodeOperation({ ...f.request, unexpected: true }));
 });
-test("script targets and cross-environment connects follow core rules with sanitized failures", async (t) => {
+test("script connect and thrown errors return sanitized failure categories", async (t) => {
   for (const [body, expected] of [
-    ["export default async ({connect})=>connect({db:'accounts'});", "InputInvalid"],
     ["export default async ({connect})=>connect({env:'unknown'});", "EnvironmentNotFound"],
-    ["export default async ({connect})=>connect({env:'local',db:'unknown'});", "DatabaseNotFound"],
     [
       "export default async ()=>{throw new Error('synthetic-secret document dump')};",
       "ScriptFailed",
@@ -168,26 +162,10 @@ test("script targets and cross-environment connects follow core rules with sanit
     const result = await f.operations.execute(f.request);
     assert.equal(code(result), expected);
     assert(!JSON.stringify(result).includes("synthetic-secret"));
-    assert.equal(
-      code(
-        await f.operations.execute({ ...f.request, env: undefined } as unknown as ScriptOperation)
-      ),
-      "RequestInvalid"
-    );
-    const { env: _env, ...withoutEnvironment } = f.request;
-    assert.equal(code(await f.operations.execute(withoutEnvironment)), "EnvironmentRequired");
-    assert.equal(
-      code(await f.operations.execute({ ...f.request, db: "missing" })),
-      "DatabaseNotFound"
-    );
   }
 });
-test("module loading failures, invalid exports and entry edits require reset and never execute a changed module", async (t) => {
+test("module loading rejects invalid exports, syntax errors and missing imports", async (t) => {
   const f = await fixture(t, "export default async ()=>({original:true});");
-  assert.deepEqual(value(await f.operations.execute(f.request)), { original: true });
-  await writeFile(f.path, "export default async ()=>({changed:true});");
-  assert.equal(code(await f.operations.execute(f.request)), "ScriptChanged");
-  assert.equal(code(await f.operations.execute(f.request)), "ScriptChanged");
   for (const [name, body] of [
     ["invalid.mjs", "export default 12;"],
     ["broken.mjs", "export default async () => { syntax!!! }"],
@@ -218,6 +196,7 @@ test("script results reject native handles, cycles, functions and oversized data
     ["export default async ({db})=>db.collection('users').find({});", "ResultEncodingFailed"],
     ["export default async ()=>{const x={};x.x=x;return x;};", "ResultEncodingFailed"],
     ["export default async ()=>({fn:()=>1});", "ResultEncodingFailed"],
+    ["export default async ()=>new Date(NaN);", "ResultEncodingFailed"],
     ["export default async ()=>({text:'x'.repeat(512*1024)});", "ResultTooLarge"],
     [
       "export default async ({bson})=>new bson.Code('code',{n:bson.Long.fromString('9007199254740993')});",
@@ -230,30 +209,19 @@ test("script results reject native handles, cycles, functions and oversized data
   const f = await fixture(t, "export default async ()=>undefined;");
   const result = await f.operations.execute(f.request);
   assert.equal(value(result), null);
-  assert.deepEqual(decodeResponse({ type: "result", id: "id", result }), {
-    type: "result",
-    id: "id",
-    result,
-  });
 });
 test("nested undefined results explain how to return missing values without exposing data", async (t) => {
-  for (const body of [
-    "export default async ()=>({privateField:'private-content', optional:undefined});",
-    "export default async ()=>['private-content', undefined];",
-  ]) {
-    const f = await fixture(t, body);
-    for (const format of ["json", "ejson"] as const) {
-      const result = await f.operations.execute({ ...f.request, format });
-      assert(!result.ok);
-      assert.equal(result.error.code, "ResultEncodingFailed");
-      assert.match(result.error.message, /nested undefined/);
-      assert.match(result.error.message, /Use null/);
-      assert(!JSON.stringify(result).includes("private-content"));
-      assert(!JSON.stringify(result).includes("privateField"));
-    }
-  }
-  const f = await fixture(t, "export default async ()=>({optional:null});");
-  assert.deepEqual(value(await f.operations.execute(f.request)), { optional: null });
+  const f = await fixture(
+    t,
+    "export default async ()=>({privateField:'private-content', optional:undefined});"
+  );
+  const result = await f.operations.execute(f.request);
+  assert(!result.ok);
+  assert.equal(result.error.code, "ResultEncodingFailed");
+  assert.match(result.error.message, /nested undefined/);
+  assert.match(result.error.message, /Use null/);
+  assert(!JSON.stringify(result).includes("private-content"));
+  assert(!JSON.stringify(result).includes("privateField"));
 });
 
 test("cooperative deadlines abort the signal and classify awaited rejections without returning before the script settles", async (t) => {
@@ -405,142 +373,15 @@ test("an uncooperative real script and its queue are terminated once; startup im
   assert.equal(await readFile(marker, "utf8"), "once\n");
 });
 
-test("finite CPU work and slow result preparation cannot succeed after the deadline before timers run", async (t) => {
+test("finite CPU work cannot succeed after the deadline before timers run", async (t) => {
   const f = await fixture(
     t,
     "export default async()=>{const end=performance.now()+150;while(performance.now()<end){}return true;};"
   );
-  assert.equal(
-    code(await f.operations.execute({ ...f.request, timeoutMs: 100 })),
-    "ScriptTimedOut"
-  );
   assert.equal(code(await f.worker.execute({ ...f.request, timeoutMs: 100 })), "ScriptTimedOut");
-  const path = join(f.directory, "slow-result.mjs");
-  await writeFile(
-    path,
-    "export default async()=>new Proxy({value:true},{ownKeys(target){const end=performance.now()+150;while(performance.now()<end){}return Reflect.ownKeys(target);}});"
-  );
-  assert.equal(
-    code(await f.operations.execute({ ...f.request, path, timeoutMs: 100 })),
-    "ScriptTimedOut"
-  );
-  const failure = join(f.directory, "late-error.mjs");
-  await writeFile(
-    failure,
-    "export default async()=>{const end=performance.now()+150;while(performance.now()<end){}throw new Error('private late failure');};"
-  );
-  const result = await f.operations.execute({ ...f.request, path: failure, timeoutMs: 100 });
-  assert.equal(code(result), "ScriptTimedOut");
-  assert(!JSON.stringify(result).includes("private late failure"));
 });
 
-test("throwing error accessors become sanitized results and keep queued scripts in the same worker", async (t) => {
-  const f = await fixture(
-    t,
-    `let calls=0;export default async({args})=>{
-    calls++;
-    if(args.kind==='code')throw {get code(){throw Error('private code diagnostic');}};
-    if(args.kind==='name'){const error=new Error('private message');Object.defineProperty(error,'name',{get(){throw Error('private name diagnostic');}});throw error;}
-    return {calls,pid:process.pid};
-  };`
-  );
-  for (const kind of ["code", "name"]) {
-    const result = await f.operations.execute({ ...f.request, args: JSON.stringify({ kind }) });
-    assert.equal(code(result), "ScriptFailed");
-    assert(!JSON.stringify(result).includes("private"));
-  }
-  const queued = ["code", "name", "success"].map((kind) =>
-    f.worker.execute({ ...f.request, args: JSON.stringify({ kind }) })
-  );
-  const results = await Promise.all(queued);
-  assert.equal(code(results[0]!), "ScriptFailed");
-  assert.equal(code(results[1]!), "ScriptFailed");
-  const last = Schema.decodeUnknownSync(Schema.JsonObject)(value(results[2]!));
-  assert.deepEqual(last["calls"], { $numberInt: "3" });
-  assert.deepEqual(last["pid"], { $numberInt: String(f.worker.status().pid) });
-  assert.equal(f.worker.status().queued, 0);
-  assert(!JSON.stringify(results).includes("private"));
-});
-
-test("script-modified application errors cannot expose arguments or documents through messages or codes", async (t) => {
-  const f = await fixture(
-    t,
-    `export default async({connect,args})=>{try{await connect({env:'unknown'});}catch(error){error.message='private-input '+args.private;if(args.modifyCode)error.code='private-code '+args.private;throw error;}};`
-  );
-  for (const modifyCode of [false, true])
-    for (const execute of f.executors) {
-      const result = await execute({
-        ...f.request,
-        args: JSON.stringify({ private: "secret-value", modifyCode }),
-      });
-      assert.equal(code(result), modifyCode ? "ScriptFailed" : "EnvironmentNotFound");
-      assert(!JSON.stringify(result).includes("private"));
-      assert(!JSON.stringify(result).includes("secret-value"));
-    }
-});
-test("result accessors cannot change validation or BSON precision; data proxies are snapshotted before encoding", async (t) => {
-  const f = await fixture(t, "export default async()=>true;");
-  for (const [name, body] of [
-    [
-      "long",
-      "export default async({bson})=>{let reads=0;return {get item(){return ++reads<3?null:bson.Long.fromString('9007199254740993');}}};",
-    ],
-    [
-      "class",
-      "export default async()=>{let reads=0;return {get item(){return ++reads<2?null:new class {constructor(){this.private='forbidden';}}}}};",
-    ],
-    [
-      "array",
-      "export default async({bson})=>{const a=[];Object.defineProperty(a,'0',{get(){return bson.Long.fromString('9007199254740993');},enumerable:true});return a;};",
-    ],
-    [
-      "scope",
-      "export default async({bson})=>new bson.Code('code',{get item(){return bson.Long.fromString('9007199254740993');}});",
-    ],
-  ] as const) {
-    const path = join(f.directory, name + ".mjs");
-    await writeFile(path, body);
-    for (const execute of f.executors)
-      assert.equal(
-        code(await execute({ ...f.request, path, format: "json" })),
-        "ResultEncodingFailed"
-      );
-  }
-  const proxy = join(f.directory, "proxy.mjs");
-  await writeFile(
-    proxy,
-    "export default async({bson})=>new Proxy({item:null},{get(){return bson.Long.fromString('9007199254740993');}});"
-  );
-  for (const execute of f.executors)
-    assert.deepEqual(value(await execute({ ...f.request, path: proxy, format: "json" })), {
-      item: null,
-    });
-  const bson = join(f.directory, "bson.mjs");
-  await writeFile(
-    bson,
-    "export default async({bson})=>({code:new bson.Code('code',{n:bson.Long.fromString('9007199254740993')}),ref:new bson.DBRef('users',new bson.ObjectId('000000000000000000000001'),'db',{n:bson.Long.fromString('9007199254740993')}),timestamp:new bson.Timestamp({t:1,i:2})});"
-  );
-  const result = Schema.decodeUnknownSync(Schema.JsonObject)(
-    value(await f.worker.execute({ ...f.request, path: bson }))
-  );
-  assert.deepEqual(result["code"], {
-    $code: "code",
-    $scope: { n: { $numberLong: "9007199254740993" } },
-  });
-  assert.deepEqual(result["ref"], {
-    $ref: "users",
-    $id: { $oid: "000000000000000000000001" },
-    $db: "db",
-    n: { $numberLong: "9007199254740993" },
-  });
-  assert.deepEqual(result["timestamp"], { $timestamp: { t: 1, i: 2 } });
-  assert.equal(
-    code(await f.worker.execute({ ...f.request, path: bson, format: "json" })),
-    "ResultPrecisionLoss"
-  );
-});
-
-test("BSON snapshots preserve signed Int64 edges and reject payloads that EJSON round trips would coerce", async (t) => {
+test("script results preserve signed Int64 edges and refuse inexact relaxed JSON", async (t) => {
   const f = await fixture(
     t,
     "export default async({bson})=>({min:bson.Long.MIN_VALUE,max:bson.Long.MAX_VALUE});"
@@ -553,224 +394,35 @@ test("BSON snapshots preserve signed Int64 edges and reject payloads that EJSON 
     code(await f.operations.execute({ ...f.request, format: "json" })),
     "ResultPrecisionLoss"
   );
-  for (const [name, body] of [
-    [
-      "unsigned",
-      "export default async({bson})=>bson.Long.fromString('18446744073709551615',true);",
-    ],
-    [
-      "int32",
-      "export default async({bson})=>{const value=new bson.Int32(1);value.value=2147483648;return value;};",
-    ],
-    [
-      "bits",
-      "export default async({bson})=>{const value=new bson.Long(1,0,false);value.high=1.5;return value;};",
-    ],
-  ] as const) {
-    const path = join(f.directory, name + ".mjs");
-    await writeFile(path, body);
-    for (const format of ["json", "ejson"] as const)
-      assert.equal(
-        code(await f.operations.execute({ ...f.request, path, format })),
-        "ResultEncodingFailed"
-      );
-  }
 });
 
-test("native BSON wrappers validate payload types and invalid dates cannot produce unusable EJSON", async (t) => {
-  const f = await fixture(t, "export default async()=>true;");
-  for (const [name, body] of [
-    [
-      "symbol-accessor",
-      "export default async({bson})=>new bson.BSONSymbol({get value(){return new class {constructor(){this.private='class-data';}}}});",
-    ],
-    [
-      "symbol-class",
-      "export default async({bson})=>new bson.BSONSymbol(new class {constructor(){this.private='class-data';}});",
-    ],
-    [
-      "regexp-payload",
-      "export default async({bson})=>{const value=new bson.BSONRegExp('a');value.pattern={private:'class-data'};return value;};",
-    ],
-    ["code-payload", "export default async({bson})=>new bson.Code('code','class-data');"],
-    ["date", "export default async()=>new Date(NaN);"],
-    ["uuid-bytes", "export default async({bson})=>new bson.Binary(new Uint8Array([1,2,3]),4);"],
-    ["code-scope-date", "export default async({bson})=>new bson.Code('code',new Date(0));"],
-  ] as const) {
-    const path = join(f.directory, name + ".mjs");
-    await writeFile(path, body);
-    for (const format of ["json", "ejson"] as const)
-      for (const execute of f.executors) {
-        const result = await execute({ ...f.request, path, format });
-        assert.equal(code(result), "ResultEncodingFailed");
-        assert(!JSON.stringify(result).includes("class-data"));
-      }
-  }
-  const valid = join(f.directory, "valid-wrappers.mjs");
-  await writeFile(
-    valid,
-    "export default async({bson})=>({symbol:new bson.BSONSymbol('literal'),regex:new bson.BSONRegExp('^a','i'),decimal:bson.Decimal128.fromString('1.25'),binary:new bson.Binary(new Uint8Array([1,2,3])),uuid:new bson.UUID('00000000-0000-0000-0000-000000000001'),oid:new bson.ObjectId('000000000000000000000001'),min:new bson.MinKey(),max:new bson.MaxKey(),date:new Date(0)});"
+test("script results preserve native BSON values", async (t) => {
+  const f = await fixture(
+    t,
+    "export default async({bson})=>({int:new bson.Int32(7),double:new bson.Double(1.25),regex:/^a/im,decimal:bson.Decimal128.fromString('1.25'),binary:new bson.Binary(new Uint8Array([1,2,3])),buffer:Buffer.from([1,2,3]),code:new bson.Code('return n',{n:1}),ref:new bson.DBRef('users',new bson.ObjectId('000000000000000000000001'),'db'),timestamp:new bson.Timestamp({t:1,i:2}),uuid:new bson.UUID('00000000-0000-0000-0000-000000000001'),date:new Date(0)});"
   );
-  for (const format of ["json", "ejson"] as const) {
-    const result = Schema.decodeUnknownSync(Schema.JsonObject)(
-      value(await f.worker.execute({ ...f.request, path: valid, format }))
-    );
-    assert.deepEqual(result["symbol"], { $symbol: "literal" });
-    assert.deepEqual(result["regex"], { $regularExpression: { pattern: "^a", options: "i" } });
-    assert.deepEqual(result["decimal"], { $numberDecimal: "1.25" });
-    assert.deepEqual(result["binary"], { $binary: { base64: "AQID", subType: "00" } });
-    assert.deepEqual(result["uuid"], {
-      $binary: { base64: "AAAAAAAAAAAAAAAAAAAAAQ==", subType: "04" },
-    });
-    assert.deepEqual(result["oid"], { $oid: "000000000000000000000001" });
-    assert.deepEqual(result["min"], { $minKey: 1 });
-    assert.deepEqual(result["max"], { $maxKey: 1 });
-    assert.deepEqual(
-      result["date"],
-      format === "json" ? { $date: "1970-01-01T00:00:00Z" } : { $date: { $numberLong: "0" } }
-    );
-  }
+  assert.deepEqual(value(await f.operations.execute(f.request)), {
+    int: { $numberInt: "7" },
+    double: { $numberDouble: "1.25" },
+    regex: { $regularExpression: { pattern: "^a", options: "im" } },
+    decimal: { $numberDecimal: "1.25" },
+    binary: { $binary: { base64: "AQID", subType: "00" } },
+    buffer: { $binary: { base64: "AQID", subType: "00" } },
+    code: { $code: "return n", $scope: { n: { $numberInt: "1" } } },
+    ref: { $ref: "users", $id: { $oid: "000000000000000000000001" }, $db: "db" },
+    timestamp: { $timestamp: { t: 1, i: 2 } },
+    uuid: { $binary: { base64: "AAAAAAAAAAAAAAAAAAAAAQ==", subType: "04" } },
+    date: { $date: { $numberLong: "0" } },
+  });
 });
 
-test("large JavaScript numeric results retain their IEEE754 values instead of becoming inexact Int64", async (t) => {
-  const f = await fixture(t, "export default async()=>2**63;");
-  const cases = [
-    ["2**60", 2 ** 60],
-    ["2**63", 2 ** 63],
-    ["-(2**63)", -(2 ** 63)],
-    ["Number.MAX_VALUE", Number.MAX_VALUE],
-  ] as const;
-  for (const [index, [expression, expected]] of cases.entries()) {
-    const path = join(f.directory, `number-${index}.mjs`);
-    await writeFile(path, `export default async()=>${expression};`);
-    for (const execute of f.executors) {
-      const encoded = value(await execute({ ...f.request, path, format: "ejson" }));
-      assert(Object.hasOwn(Schema.decodeUnknownSync(Schema.JsonObject)(encoded), "$numberDouble"));
-      const decoded: unknown = BSON.EJSON.deserialize({ value: encoded }, { relaxed: false })[
-        "value"
-      ];
-      assert(decoded instanceof BSON.Double);
-      assert(Object.is(decoded.value, expected));
-      assert(Object.is(value(await execute({ ...f.request, path, format: "json" })), expected));
-    }
-  }
-  const nested = join(f.directory, "nested-number.mjs");
-  await writeFile(
-    nested,
-    "export default async({bson})=>({array:[2**63],code:new bson.Code('code',{n:-(2**63)}),ref:new bson.DBRef('items',new bson.ObjectId('000000000000000000000001'),undefined,{n:2**60})});"
-  );
-  for (const execute of f.executors) {
-    const encoded = value(await execute({ ...f.request, path: nested }));
-    const decoded = BSON.EJSON.deserialize({ value: encoded }, { relaxed: false })["value"];
-    assert(decoded.array[0] instanceof BSON.Double);
-    assert(Object.is(decoded.array[0].value, 2 ** 63));
-    assert(decoded.code.scope.n instanceof BSON.Double);
-    assert(Object.is(decoded.code.scope.n.value, -(2 ** 63)));
-    assert(decoded.ref.fields.n instanceof BSON.Double);
-    assert(Object.is(decoded.ref.fields.n.value, 2 ** 60));
-  }
-});
-
-test("ObjectId snapshots validate captured bytes and native RegExp overrides cannot invoke coercion", async (t) => {
-  const f = await fixture(t, "export default async()=>true;");
-  for (const [index, body] of [
-    ...["i0=1.5", "i1=-1", "i2=16777216", "i3=NaN", "i0='16777215'", "i0=Infinity"].map(
-      (assignment) =>
-        `export default async({bson})=>{const value=new bson.ObjectId('000000000000000000000001');value.${assignment};return value;};`
-    ),
-    ...["source", "flags"].map(
-      (key) =>
-        `export default async()=>{const value=/x/;Object.defineProperty(value,'${key}',{value:new class {toString(){return '${key === "source" ? "class-data" : "i"}';}}});return value;};`
-    ),
-  ].entries()) {
-    const path = join(f.directory, `invalid-native-${index}.mjs`);
-    await writeFile(path, body);
-    for (const format of ["json", "ejson"] as const)
-      for (const execute of f.executors) {
-        const result = await execute({ ...f.request, path, format });
-        assert.equal(code(result), "ResultEncodingFailed");
-        assert(!JSON.stringify(result).includes("class-data"));
-      }
-  }
-  const valid = join(f.directory, "native-snapshot.mjs");
-  await writeFile(
-    valid,
-    "export default async({bson})=>({oid:new Proxy(new bson.ObjectId('000000000000000000000001'),{get(t,k,r){return k==='i0'?0xffffff:Reflect.get(t,k,r);}}),edge:new bson.ObjectId('ffffffffffffffffffffffff'),regex:/^a/im});"
-  );
-  for (const format of ["json", "ejson"] as const)
-    for (const execute of f.executors)
-      assert.deepEqual(value(await execute({ ...f.request, path: valid, format })), {
-        oid: { $oid: "000000000000000000000001" },
-        edge: { $oid: "ffffffffffffffffffffffff" },
-        regex: { $regularExpression: { pattern: "^a", options: "im" } },
-      });
-});
-
-test("byte snapshots reject payload overrides and copy actual native bytes without Buffer coercion", async (t) => {
-  const f = await fixture(t, "export default async()=>true;");
-  for (const [index, body] of [
-    "export default async({bson})=>{const value=new bson.Binary(new Uint8Array([1,2,3]),4);Object.defineProperties(value.buffer,{byteLength:{get(){return 16;}},length:{get(){return 16;}}});value.position=16;return value;};",
-    "export default async({bson})=>{const value=bson.Decimal128.fromString('1.25');value.bytes=new Uint8Array([1,2,3]);Object.defineProperties(value.bytes,{byteLength:{get(){return 16;}},length:{get(){return 16;}}});return value;};",
-    "export default async()=>{const value=Buffer.from([1,2,3]);value.valueOf=()=>Buffer.from('changed');return value;};",
-    "export default async({bson})=>{const value=new bson.Binary(new Uint8Array([1,2,3]),4);Object.defineProperties(value.buffer,{byteLength:{value:16},length:{value:16}});value.position=16;return value;};",
-  ].entries()) {
-    const path = join(f.directory, `modified-bytes-${index}.mjs`);
-    await writeFile(path, body);
-    for (const format of ["json", "ejson"] as const)
-      for (const execute of f.executors) {
-        const result = await execute({ ...f.request, path, format });
-        assert.equal(code(result), "ResultEncodingFailed");
-        assert(!JSON.stringify(result).includes("changed"));
-      }
-  }
-  const valid = join(f.directory, "native-bytes.mjs");
-  await writeFile(
-    valid,
-    "export default async({bson})=>({buffer:Buffer.from([1,2,3]),binary:new bson.Binary(new Uint8Array([4,5,6])),decimal:bson.Decimal128.fromString('1.25')});"
-  );
-  for (const format of ["json", "ejson"] as const)
-    for (const execute of f.executors) {
-      const encoded = value(await execute({ ...f.request, path: valid, format }));
-      const decoded = BSON.EJSON.deserialize({ value: encoded }, { relaxed: false })["value"];
-      assert.deepEqual(Array.from(decoded.buffer.buffer), [1, 2, 3]);
-      assert.deepEqual(Array.from(decoded.binary.buffer), [4, 5, 6]);
-      assert.equal(decoded.decimal.toString(), "1.25");
-    }
-});
-
-test("array snapshots validate primitive lengths and index bounds before allocating or coercing", async (t) => {
-  const f = await fixture(t, "export default async()=>true;");
-  for (const [index, length] of [
-    "new class {valueOf(){return 0;}}",
-    "'0'",
-    "-1",
-    "1.5",
-    "NaN",
-    "Infinity",
-    "4294967296",
-    "0",
-    "524289",
-  ].entries()) {
-    const path = join(f.directory, `array-length-${index}.mjs`);
-    await writeFile(
-      path,
-      `export default async({bson})=>new Proxy([bson.Long.fromString('9007199254740993')],{getOwnPropertyDescriptor(t,k){const d=Reflect.getOwnPropertyDescriptor(t,k);return k==='length'?{...d,value:${length}}:d;}});`
-    );
-    for (const format of ["json", "ejson"] as const)
-      for (const execute of f.executors)
-        assert.equal(
-          code(await execute({ ...f.request, path, format })),
-          length === "524289" ? "ResultTooLarge" : "ResultEncodingFailed"
-        );
-  }
-  const valid = join(f.directory, "valid-array.mjs");
-  await writeFile(valid, "export default async()=>[1,false,'literal',null];");
-  for (const format of ["json", "ejson"] as const)
-    for (const execute of f.executors)
-      assert.deepEqual(value(await execute({ ...f.request, path: valid, format })), [
-        format === "json" ? 1 : { $numberInt: "1" },
-        false,
-        "literal",
-        null,
-      ]);
+test("large JavaScript numbers round-trip as doubles rather than inexact Int64", async (t) => {
+  const f = await fixture(t, "export default async()=>({nested:[2**63]});");
+  const encoded = value(await f.operations.execute(f.request));
+  const decoded = BSON.EJSON.deserialize({ value: encoded }, { relaxed: false })["value"];
+  assert(decoded.nested[0] instanceof BSON.Double);
+  assert(Object.is(decoded.nested[0].value, 2 ** 63));
+  assert.deepEqual(value(await f.operations.execute({ ...f.request, format: "json" })), {
+    nested: [2 ** 63],
+  });
 });

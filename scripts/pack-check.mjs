@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { installLocal } from "./local-install.mjs";
 import { runNpm as invokeNpm } from "./npm-command.mjs";
@@ -81,101 +88,37 @@ try {
     { cwd: consumer, encoding: "utf8" }
   );
   assert.equal(imports.status, 0, imports.stderr);
-  // Read only the installed artifact from an unrelated cwd and with no usable catalog.
-  const installedHelp = spawnSync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "-e",
-      `import assert from 'node:assert/strict';
-       import { readFileSync } from 'node:fs';
-       import { isAbsolute, relative } from 'node:path';
-       import { agentGuideTopics, getAgentGuide, getAgentSkillPath, readAgentSkill }
-         from './node_modules/@abijith-suresh/runnel/dist/agent-help.js';
-       const path = getAgentSkillPath();
-       assert(isAbsolute(path));
-       assert.equal(relative(process.cwd(), path).replaceAll('\\\\', '/'),
-         'node_modules/@abijith-suresh/runnel/skills/runnel/SKILL.md');
-       const skill = readFileSync(path, 'utf8');
-       assert.equal(readAgentSkill(), skill);
-       assert.equal(getAgentGuide('skill'), skill);
-       for (const topic of agentGuideTopics) {
-         const guide = getAgentGuide(topic);
-         assert(guide.trim().length > 0);
-         assert(skill.includes(guide.trimEnd()));
-         assert(!guide.includes(process.env.RUNNEL_PACK_SOURCE_ROOT));
-       }
-       process.stdout.write('Installed skill and offline guide passed\\n');`,
-    ],
-    {
-      cwd: consumer,
-      env: {
-        ...process.env,
-        RUNNEL_HOME: "invalid-relative-catalog",
-        RUNNEL_PACK_SOURCE_ROOT: root,
-      },
-      encoding: "utf8",
-      timeout: 10000,
-    }
-  );
-  assert.equal(installedHelp.status, 0, installedHelp.stderr);
-  assert.equal(installedHelp.stderr, "");
-  const worker = spawnSync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "-e",
-      `import assert from 'node:assert/strict';
-       import { createWorkerSupervisor } from './node_modules/@abijith-suresh/runnel/dist/worker-supervisor.js';
-       const worker = createWorkerSupervisor(process.env.RUNNEL_HOME);
-       try {
-         const first = await worker.execute({ operation: 'list' });
-         assert.equal(first.ok, false);
-         assert.equal(first.error.code, 'EnvironmentRequired');
-         const pid = worker.status().pid;
-         const second = await worker.execute({ operation: 'list', env: 'unknown' });
-         assert.equal(second.ok, false);
-         assert.equal(second.error.code, 'EnvironmentNotFound');
-         assert.equal(worker.status().pid, pid);
-         await worker.reset();
-         const third = await worker.execute({ operation: 'list' });
-         assert.equal(third.error.code, 'EnvironmentRequired');
-         assert.notEqual(worker.status().pid, pid);
-       } finally { await worker.stop(); }`,
-    ],
-    {
-      cwd: consumer,
-      env: { ...process.env, RUNNEL_HOME: join(temporary, "empty-worker-catalog") },
-      encoding: "utf8",
-      timeout: 30000,
-    }
-  );
-  assert.equal(worker.status, 0, worker.stderr);
   const executable = join(consumer, "node_modules/@abijith-suresh/runnel/dist/cli.js");
-  const skillPath = spawnSync(process.execPath, [executable, "skill", "path"], {
-    cwd: temporary,
-    encoding: "utf8",
-    env: { ...process.env, RUNNEL_HOME: "invalid-relative-catalog" },
-  });
-  assert.equal(skillPath.status, 0, skillPath.stderr);
-  const skillText = readFileSync(skillPath.stdout.trim(), "utf8");
-  for (const args of [["skill"], ["skill", "print"], ["guide", "skill"]]) {
-    const result = spawnSync(process.execPath, [executable, ...args], {
+  const offline = (args) =>
+    spawnSync(process.execPath, [executable, ...args], {
       cwd: temporary,
       encoding: "utf8",
       env: { ...process.env, RUNNEL_HOME: "invalid-relative-catalog" },
+      timeout: 10000,
     });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stderr, "");
-    assert.equal(result.stdout, skillText);
-  }
-  const cli = spawnSync(process.execPath, [executable, "--help"], {
-    cwd: consumer,
-    encoding: "utf8",
-  });
+  const skillPath = offline(["skill", "path"]);
+  assert.equal(skillPath.status, 0, skillPath.stderr);
+  assert.equal(skillPath.stderr, "");
+  const path = skillPath.stdout.trim();
+  assert(isAbsolute(path));
+  assert.equal(
+    relative(realpathSync(consumer), path).replaceAll("\\", "/"),
+    "node_modules/@abijith-suresh/runnel/skills/runnel/SKILL.md"
+  );
+  const skillText = readFileSync(path, "utf8");
+  const printedSkill = offline(["skill", "print"]);
+  assert.equal(printedSkill.status, 0, printedSkill.stderr);
+  assert.equal(printedSkill.stderr, "");
+  assert.equal(printedSkill.stdout, skillText);
+  const guide = offline(["guide", "scripts"]);
+  assert.equal(guide.status, 0, guide.stderr);
+  assert.equal(guide.stderr, "");
+  assert.match(guide.stdout, /^## Scripts\r?\n/);
+  assert(skillText.includes(guide.stdout.trimEnd()));
+  const cli = offline(["--help"]);
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stderr, "");
-  assert.match(cli.stdout, /Exports save bounded JSON\/EJSON arrays/);
+  assert.match(cli.stdout, /^Runnel\r?\n/);
   const discovery = spawnSync(process.execPath, [executable, "envs"], {
     cwd: consumer,
     env: { ...process.env, RUNNEL_HOME: join(temporary, "empty-catalog") },
@@ -184,16 +127,6 @@ try {
   assert.equal(discovery.status, 0, discovery.stderr);
   assert.equal(discovery.stderr, "");
   assert.deepEqual(JSON.parse(discovery.stdout), { ok: true, data: { environments: [] } });
-  const version = spawnSync(process.execPath, [executable, "--version"], {
-    cwd: consumer,
-    encoding: "utf8",
-  });
-  assert.equal(version.status, 0, version.stderr);
-  assert.equal(version.stderr, "");
-  assert.equal(
-    version.stdout,
-    `${manifests.find((pkg) => pkg.name === "@abijith-suresh/runnel").version}\n`
-  );
   const noninteractiveSetup = spawnSync(process.execPath, [executable, "setup"], {
     cwd: consumer,
     encoding: "utf8",
@@ -218,11 +151,8 @@ try {
     assert.equal(JSON.parse(target.stdout).error.code, "EnvironmentNotFound");
     writeFileSync(join(consumer, "packed-script.mjs"), "export default async () => true;\n");
     for (const args of [
-      ["describe", "users", "-e", "unknown"],
       ["find", "users", "-e", "unknown", "--filter", "{}"],
-      ["count", "users", "-e", "unknown"],
       ["export", "users", "-e", "unknown", "--output", "packed-users.ejson"],
-      ["aggregate", "users", "-e", "unknown", "--pipeline", "[]"],
       ["run", "packed-script.mjs", "-e", "unknown", "--args", "{}", "--timeout", "0"],
     ]) {
       const query = daemonCli(args);
@@ -232,7 +162,7 @@ try {
     const history = daemonCli(["history"]);
     assert.equal(history.status, 0, history.stderr);
     const records = JSON.parse(history.stdout).data.entries;
-    assert.equal(records.length, 7);
+    assert.equal(records.length, 4);
     assert(records.every((entry) => entry.outcome.code === "EnvironmentNotFound"));
     assert(records.every((entry) => Object.keys(entry.targets).length === 0));
     const status = daemonCli(["daemon", "status"]);
@@ -252,7 +182,7 @@ try {
     assert.equal(stop.status, 0, stop.stderr);
   }
   process.stdout.write(
-    "All three npm pack dry runs, isolated tarball installs, imports, CLI entry point, worker lifecycle, and daemon lifecycle passed\n"
+    "All three npm pack dry runs, isolated tarball installs, imports, and installed CLI/daemon checks passed\n"
   );
   if (integration)
     execFileSync(

@@ -9,16 +9,7 @@ const guideSections = {
   management: "Management",
 } as const;
 
-export const agentGuideTopics = [
-  "overview",
-  "query",
-  "scripts",
-  "errors",
-  "management",
-  "all",
-  "skill",
-] as const;
-export type AgentGuideTopic = (typeof agentGuideTopics)[number];
+export const agentGuideTopics = [...Object.keys(guideSections), "all", "skill"];
 
 /** Resolve beside this module, independent of the caller's cwd or catalog. */
 export function getAgentSkillPath(): string {

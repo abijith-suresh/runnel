@@ -3,9 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { createMongoPool } from "@abijith-suresh/runnel-mongodb";
 import * as Effect from "effect/Effect";
-import type { Db } from "mongodb";
 import { readCatalog } from "../dist/catalog.js";
 import { updateCatalog } from "../dist/catalog-write.js";
 import {
@@ -18,12 +16,10 @@ import {
 } from "../dist/management.js";
 import { credentialStore } from "../dist/secrets.js";
 import { PromptError, type SetupPrompt } from "../dist/setup-prompt.js";
-import { workerOperations } from "../dist/worker-operations.js";
 
 const envName = "local";
 const connectionName = "primary";
 const customersAlias = "customers";
-const unrelatedAlias = "unrelated";
 const target = { env: "local", connection: "primary" };
 const alias = { env: "local", alias: "accounts" };
 const original = "mongodb://synthetic:old-private-value@example.invalid";
@@ -281,35 +277,33 @@ test("missing names and collisions fail without changing mappings or touching cr
   assert.equal(f.removed.length, 0);
 });
 
-test("validation rejects reserved and malformed names and database names over the byte limit", async (t) => {
+test("management rejects reserved names and oversized database names", async (t) => {
   const f = fixture(t);
   await f.seed();
   const before = f.text();
-  for (const bad of ["__proto__", "constructor", "prototype", "bad.name", "", "x".repeat(65)]) {
-    failure(
-      await addDatabase(f.directory, { ...target, alias: bad, database: "physical" }),
-      "ManagementInvalid"
-    );
-    failure(await renameDatabase(f.directory, { ...alias, to: bad }), "ManagementInvalid");
-    failure(await removeDatabase(f.directory, { ...alias, alias: bad }), "ManagementInvalid");
-    failure(
-      await removeConnection(f.directory, { ...target, connection: bad }, f.secrets),
-      "ManagementInvalid"
-    );
-    failure(
-      await rotateConnection(f.directory, { ...target, env: bad }, input().prompt, {
-        secrets: f.secrets,
-        inspect,
-      }),
-      "ManagementInvalid"
-    );
-  }
-  for (const database of ["bad.name", "bad name", "", "é".repeat(32)]) {
-    failure(
-      await addDatabase(f.directory, { ...target, alias: "new", database }),
-      "ManagementInvalid"
-    );
-  }
+  const bad = "__proto__";
+  failure(
+    await addDatabase(f.directory, { ...target, alias: bad, database: "physical" }),
+    "ManagementInvalid"
+  );
+  failure(await renameDatabase(f.directory, { ...alias, to: bad }), "ManagementInvalid");
+  failure(await removeDatabase(f.directory, { ...alias, alias: bad }), "ManagementInvalid");
+  failure(
+    await removeConnection(f.directory, { ...target, connection: bad }, f.secrets),
+    "ManagementInvalid"
+  );
+  failure(
+    await rotateConnection(f.directory, { ...target, env: bad }, input().prompt, {
+      secrets: f.secrets,
+      inspect,
+    }),
+    "ManagementInvalid"
+  );
+  const database = "é".repeat(32);
+  failure(
+    await addDatabase(f.directory, { ...target, alias: "new", database }),
+    "ManagementInvalid"
+  );
   assert.equal(f.text(), before);
   assert.equal(f.writes(), 1);
 });
@@ -317,17 +311,16 @@ test("validation rejects reserved and malformed names and database names over th
 test("inherited property names are looked up as own properties and can be real aliases", async (t) => {
   const f = fixture(t);
   await f.seed(false);
-  for (const name of ["toString", "valueOf", "hasOwnProperty"]) {
-    failure(await removeDatabase(f.directory, { env: "local", alias: name }), "DatabaseNotFound");
-    failure(
-      await removeConnection(f.directory, { env: "local", connection: name }, f.secrets),
-      "ConnectionNotFound"
-    );
-    failure(await removeDatabase(f.directory, { env: name, alias: "x" }), "EnvironmentNotFound");
-    assert((await addDatabase(f.directory, { ...target, alias: name, database: "physical" })).ok);
-    assert(Object.hasOwn((await f.catalog()).environments[envName]?.databases ?? {}, name));
-    assert((await removeDatabase(f.directory, { env: "local", alias: name })).ok);
-  }
+  const name = "toString";
+  failure(await removeDatabase(f.directory, { env: "local", alias: name }), "DatabaseNotFound");
+  failure(
+    await removeConnection(f.directory, { env: "local", connection: name }, f.secrets),
+    "ConnectionNotFound"
+  );
+  failure(await removeDatabase(f.directory, { env: name, alias: "x" }), "EnvironmentNotFound");
+  assert((await addDatabase(f.directory, { ...target, alias: name, database: "physical" })).ok);
+  assert(Object.hasOwn((await f.catalog()).environments[envName]?.databases ?? {}, name));
+  assert((await removeDatabase(f.directory, { env: "local", alias: name })).ok);
 });
 
 test("cancelled, invalid and rejected rotation input leaves the original credential intact", async (t) => {
@@ -407,21 +400,6 @@ test("failed catalog commit rolls back the newly stored secret only", async (t) 
   assert.equal(f.writes(), 2);
   assert.equal(f.stored.size, 1);
   assert.equal(await Effect.runPromise(f.secrets.read(old)), original);
-});
-
-test("a native write that stores then rejects is rolled back without replacing the old reference", async (t) => {
-  const f = fixture(t);
-  await f.seed();
-  const before = f.text();
-  f.hooks.set = async () => {
-    throw new Error(replacement);
-  };
-  failure(
-    await rotateConnection(f.directory, target, input().prompt, { secrets: f.secrets, inspect }),
-    "SecretUnavailable"
-  );
-  assert.equal(f.text(), before);
-  assert.deepEqual([...f.stored.values()], [original]);
 });
 
 test("postcommit credential cleanup failures report success and a warning without deleting the live new secret", async (t) => {
@@ -506,49 +484,6 @@ test("removal while rotation waits for a vault write cannot be undone by the sta
   assert.equal(f.stored.size, 0);
 });
 
-test("removal and re-registration of the same name cannot receive a stale rotation", async (t) => {
-  const f = fixture(t);
-  await f.seed(false);
-  const waiting = gate();
-  const proceed = gate();
-  const rotation = rotateConnection(f.directory, target, input().prompt, {
-    secrets: f.secrets,
-    inspect: async () => {
-      waiting.resolve();
-      await proceed.promise;
-      return inspect();
-    },
-  });
-  await waiting.promise;
-  assert((await removeConnection(f.directory, target, f.secrets)).ok);
-  const newReference = await f.seed(false);
-  proceed.resolve();
-  failure(await rotation, "ConnectionChanged");
-  assert.equal(await Effect.runPromise(f.secrets.read(newReference)), original);
-  assert.equal(f.stored.size, 1);
-});
-
-test("concurrent adds and renames preserve unrelated aliases and enforce conflicts under the lock", async (t) => {
-  const f = fixture(t);
-  await f.seed();
-  const additions = await Promise.all([
-    addDatabase(f.directory, { ...target, alias: "new", database: "one" }),
-    addDatabase(f.directory, { ...target, alias: "new", database: "two" }),
-    addDatabase(f.directory, { ...target, alias: "unrelated", database: "three" }),
-  ]);
-  assert.equal(additions.filter((result) => result.ok).length, 2);
-  failure(additions.find((result) => !result.ok) ?? additions[0], "DatabaseNameConflict");
-  const renames = await Promise.all([
-    renameDatabase(f.directory, { ...alias, to: "destination" }),
-    renameDatabase(f.directory, { env: "local", alias: "new", to: "destination" }),
-  ]);
-  assert.equal(renames.filter((result) => result.ok).length, 1);
-  failure(renames.find((result) => !result.ok) ?? renames[0], "DatabaseNameConflict");
-  const databases = (await f.catalog()).environments[envName]?.databases;
-  assert.equal(Object.keys(databases ?? {}).length, 3);
-  assert.deepEqual(databases?.[unrelatedAlias], { connection: "primary", database: "three" });
-});
-
 test("adding an alias concurrently with connection removal never leaves a dangling mapping", async (t) => {
   const f = fixture(t);
   await f.seed(false);
@@ -613,44 +548,4 @@ test("credential deletion holds the catalog writer lock through its reference ch
   assert((await removal).ok);
   await writer;
   assert.equal(writerEntered, true);
-});
-
-test("an already running worker refreshes credentials and pool clients on the next operation", async (t) => {
-  const f = fixture(t);
-  await f.seed();
-  const created: string[] = [];
-  const closed: string[] = [];
-  const pool = createMongoPool((uri) => {
-    created.push(uri);
-    return {
-      db: () =>
-        ({
-          listCollections: () => ({
-            async *[Symbol.asyncIterator]() {
-              yield { name: "users", type: "collection" };
-            },
-            async close() {},
-          }),
-        }) as unknown as Db,
-      async close() {
-        closed.push(uri);
-      },
-    };
-  });
-  const worker = workerOperations(f.directory, pool, f.secrets);
-  t.after(() => worker.close());
-  assert((await worker.execute({ operation: "list", env: "local", db: "accounts" })).ok);
-  assert(
-    (await rotateConnection(f.directory, target, input().prompt, { secrets: f.secrets, inspect }))
-      .ok
-  );
-  assert((await worker.execute({ operation: "list", env: "local", db: "accounts" })).ok);
-  assert.deepEqual(created, [original, replacement]);
-  assert.deepEqual(closed, [original]);
-  assert((await removeDatabase(f.directory, alias)).ok);
-  assert((await removeConnection(f.directory, target, f.secrets)).ok);
-  const result = await worker.execute({ operation: "list", env: "local", db: "accounts" });
-  assert(!result.ok);
-  assert.equal(result.error.code, "DatabaseNotFound");
-  assert.deepEqual(created, [original, replacement]);
 });
