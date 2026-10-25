@@ -55,7 +55,8 @@ apps/cli -> packages/mongodb -> packages/core
          -> packages/core
 ```
 
-Core must not import concrete providers or the CLI; Biome enforces this.
+Core must not import concrete providers or the CLI. Biome rejects MongoDB imports
+in core.
 MongoDB pools use one client per registered connection. Aliases share a client;
 independent registrations do not. Native driver handles stay inside the worker.
 Only JSON application values cross IPC.

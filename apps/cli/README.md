@@ -2,81 +2,50 @@
 
 `@abijith-suresh/runnel` provides the `runnel` executable for named MongoDB access.
 A human registers credentials through `setup`; agents query database aliases.
+The CLI requires Node `>=24.19.0 <25`. For a local installation, follow the
+[local testing guide](../../CONTRIBUTING.md#local-testing).
 
 ```sh
-runnel --help     # also -h; no arguments show help too
-runnel --version  # also -v
-runnel help
-runnel help find
-runnel help database rename
-runnel find --help
-runnel run --help
 runnel setup
 runnel envs
-runnel connections -e local
 runnel databases -e local
 runnel list -e local -d accounts
-runnel describe users -e local -d accounts
-runnel find users -e local -d accounts --filter-file filter.json
-runnel count users -e local -d accounts
-runnel aggregate users -e local -d accounts --pipeline-file pipeline.json
-runnel run compare.mjs -e local -d accounts --args-file args.json --timeout 5m
-runnel export users -e local -d accounts --output users.ejson
-runnel history
-runnel daemon status
-runnel daemon reset
-runnel daemon stop
+runnel find users -e local -d accounts --limit 10
+runnel guide
 ```
 
 ## Help and syntax
 
-`runnel help` shows the same help as `runnel --help` or no arguments.
-`runnel help <command>` and
-`runnel <command> --help` list that command's options without requiring operands,
-a catalog, or database access. For a management action, use
-`runnel help database rename` or `runnel database rename --help` to see its usage
-and options. Help still rejects unknown commands, invalid actions, extra
-operands, and unsupported or malformed flags.
+`runnel help`, `--help`, `-h`, and no arguments show the available commands.
+Use `runnel help find` or `runnel find --help` for command options, and
+`runnel help database rename` for a management action. Help needs no operands,
+catalog, or database access, but still checks supplied syntax. `--version` or
+`-v` prints the installed version.
 
-Version output comes from the installed package metadata. Help and version
-write to stdout and exit with status 0. Standalone `--help --version` shows help;
-`--version` cannot be combined with a command.
+Application commands write one JSON envelope to stdout. Success has `ok: true`
+and `data`; failure has `ok: false` and `error.code`/`error.message`, with exit
+status 1. Syntax errors instead leave stdout empty and write a usage diagnostic
+to stderr before catalog access, daemon activity, or input reads. Diagnostics
+omit private argument values. Help, version, guide, and skill output is plain text.
 
-Syntax failures identify unknown commands or options, missing option values or
-operands, invalid actions, and flags unsupported by the command or action. They
-write plain diagnostics to stderr, leave stdout empty, and exit with status 1.
-The diagnostic points to `runnel help <command>` when the command is recognized.
-It omits argument values and unknown names. Syntax validation happens before
-catalog access, daemon activity, or stdin reads, including when `--help` is
-present. For values starting with a dash, use `--option=<value>`. Use `--` before
-operands starting with a dash; tokens after it are operands, not flags.
-For short options, use `-e local` or `-elocal`; use the long form `--env=local`
-when writing an equals sign. `-e=local` treats `=local` as the environment name.
+For values starting with a dash, use `--option=<value>`. Use `--` before operands
+starting with a dash. Short options accept `-e local` or `-elocal`; use
+`--env=local` for an equals sign. `-e=local` selects the literal name `=local`.
 
-## Discovery and daemon
+## Choosing a database
 
-Discovery writes a JSON envelope to stdout, with `ok: true` and `data`, or
-`ok: false` and a structured `error`.
-Discovery errors exit with status 1. `connections` and `databases` require an
-explicit `-e`/`--env`. They list configured mappings without connecting to a
-database or reading credentials. Connection output omits secret references.
-`list` requires `-e` and infers `-d` only when the environment has exactly one
-database alias. It starts a user-wide local daemon, resolves the alias in the
-worker, reads the OS credential there, and returns collection names/types with
-an explicit truncation flag. At most 1,000 collections are returned. Repeated
-invocations use the same worker and connection pools.
+`envs`, `connections -e <environment>`, and `databases -e <environment>` read
+configured names without querying MongoDB or reading credentials. Connection
+output omits secret references. Every database operation requires an explicit
+`-e`/`--env`. Omit `-d`/`--db` only when that environment has exactly one alias.
 
-`daemon status` reports a reachable daemon and its worker state. `reset` discards
-active and queued operations without replay, then future work starts a fresh
-worker. `stop` closes the worker and shuts down the daemon. These lifecycle
-commands never start a missing daemon. The daemon shuts down after five minutes
-of inactivity by default; active and queued work prevent shutdown. Stop the old
-daemon after installing another Runnel version before running database work.
+`list` queries the selected database for collection names and types, returning
+at most 1,000 collections with a `truncated` flag. Database operations start a
+local daemon on demand and reuse its worker and connection pools.
 
 ## Offline agent instructions
 
-The installed CLI includes a `skills/runnel/SKILL.md` file and a guide that reads
-from the same file. Help points agents to the guide, which needs no catalog,
+`runnel guide` reads the bundled `skills/runnel/SKILL.md`. It needs no catalog,
 credential storage, database, or network access:
 
 ```sh
@@ -87,15 +56,10 @@ runnel guide errors
 runnel guide management
 runnel guide all
 runnel skill path
-runnel skill print
 ```
 
-`runnel skill` also prints the full skill. `skill path` prints its absolute path
-inside this installation, for loading with an agent's skill mechanism. These
-commands print plain text, while database commands return JSON envelopes.
-Installation includes the skill without changing agent configuration or writing
-to agent-specific directories. The guide explains discovery by name, BSON
-precision, truncation, the native script contract, cancellation, and recovery.
+`runnel skill` or `runnel skill print` prints the full file. `skill path` locates
+it for an agent's skill loader. Installation does not change agent configuration.
 
 ## Catalog
 
@@ -103,8 +67,8 @@ The catalog is `catalog.json` under `$XDG_CONFIG_HOME/runnel` or
 `~/.config/runnel` on Linux, and `%APPDATA%/runnel` on Windows. An absolute
 `RUNNEL_HOME` overrides that directory for isolated testing. A missing catalog
 returns empty discovery results. Invalid or unreadable catalogs fail; they do
-not silently become empty. Human setup creates and updates this catalog with
-serialized atomic replacement; it stores only OS secret references.
+not silently become empty. Setup and management commands update it atomically;
+it stores OS secret references, never credentials.
 See [the architecture section](../../README.md#architecture) for its schema.
 
 ## Registering a connection
@@ -140,19 +104,11 @@ A concurrent connection change rejects the rotation instead of overwriting it.
 If old-credential cleanup fails after the commit, the result stays successful
 with a `SecretCleanupFailed` warning. A later operation reads the new credential;
 the worker replaces the old connection pool when the URI changes. Already active
-work pins each connection's credentials until that operation finishes, so a
-script's later `connect()` cannot close its original database handle.
-
-Each operation uses the catalog snapshot from its first database resolution,
-including aliases first visited by a later `connect()`. Alias additions, removals,
-renames, and replacement registrations take effect on the next operation.
-Parallel connects share one credential read and its outcome for each connection.
-If a credential disappears before it can be read, resolution may follow at most
-two newer references, provided that connection's complete alias mappings still
-match the snapshot. Changed mappings cause `TargetChanged` before acquiring a
-handle for that connection. This can also reject a concurrent alias edit during
-rotation. Start a new operation to use the edited catalog; inspect state first
-if a script may already have written data. Database operations are never replayed.
+work keeps acquired handles and credentials until it finishes. Each operation
+uses one catalog snapshot, including aliases first visited by a later `connect()`.
+Catalog edits become visible on the next operation. A concurrent mapping change
+during credential recovery can return `TargetChanged`; inspect possible writes
+before starting another operation. Runnel never replays database work.
 
 Aliases can be managed without accessing MongoDB or credentials:
 
@@ -171,8 +127,7 @@ An empty environment remains available for later setup.
 
 ## Querying a named database
 
-All query commands require `-e`, with `-d` inferred only for a sole alias. `find`
-and `count` accept `--filter` or `--filter-file`; omission uses `{}`. Find also
+`find` and `count` accept `--filter` or `--filter-file`; omission uses `{}`. Find also
 accepts `--projection` or `--projection-file`, `--sort` or `--sort-file`, and
 `--skip`. Sort objects use 1/-1 directions. Aggregate requires `--pipeline` or
 `--pipeline-file` containing an array of stage objects. Inputs are JSON or MongoDB
@@ -239,9 +194,8 @@ runnel run lookup.mjs -e dint -d accounts --args-file args.json --timeout 5m
 cat args.json | runnel run lookup.mjs -e dint -d accounts --args-file -
 ```
 
-An environment is required. A database alias is inferred only when the selected
-environment has one. Choose `--args` or `--args-file`; arguments default to `{}`
-and accept plain JSON up to 256 KiB from inline input, UTF-8 regular files, or stdin.
+Choose `--args` or `--args-file`; arguments default to `{}` and accept plain JSON
+up to 256 KiB from inline input, UTF-8 regular files, or stdin.
 EJSON-looking argument keys stay data. Use the `bson` helpers inside the script
 when constructing native values. Numeric argument literals must be finite and safe.
 
@@ -257,9 +211,8 @@ The deadline defaults to `settings.scriptTimeoutMs`, initially five minutes.
 or `h`, up to 2,147,483,547 ms. Examples are `1500ms`, `30s`, `5m` and `1h`.
 Composite values such as `2m30s` are rejected; use `150s` instead. Bare nonzero
 numbers need a unit, so use `1500ms` rather than `1500`. `0` disables the deadline.
-If the catalog setting exceeds this script
-limit, lower it or use an explicit supported override. The active deadline
-includes target lookup, imports, execution, and result processing; queue wait is
+If the catalog setting exceeds this limit, lower it or supply `--timeout`.
+The active deadline includes target lookup, imports, execution, and result processing; queue wait is
 separate. It is independent of the daemon's idle timer. Pass `signal` to driver
 operations that support it and await all work.
 
@@ -270,10 +223,24 @@ stops the worker and discards queued requests, with no replay. Neither a timeout
 nor cancellation proves that database writes were rolled back. Native Windows
 signal behavior remains unvalidated.
 
-After editing an already-used entry, run `runnel daemon reset`; changed entries
-fail with `ScriptChanged` until reset. Imported dependency-only edits and fixed
-failed imports also need reset. Reset clears modules and pools. Scripts execute
-with the worker user's OS and database permissions.
+Scripts execute with the worker user's OS and database permissions. After editing
+a loaded script or its imports, follow the [daemon recovery rules](#daemon-and-recovery).
+
+## Daemon and recovery
+
+`runnel daemon status` reports the daemon and worker state. `reset` interrupts
+active and queued work and clears modules and pools; the next operation starts a
+fresh worker. `stop` shuts down both. These commands never start a missing daemon.
+By default, five minutes of inactivity shuts it down. Active and queued work
+prevent idle shutdown.
+
+Node caches script modules in the worker. After editing an already-used entry,
+an imported dependency, or a failed import, run `runnel daemon reset`. Changed
+entries fail with `ScriptChanged` until reset. Coordinate resets with other work
+using the same catalog. Reset and stop do not undo writes.
+
+After installing another Runnel version or rebuilding the CLI, stop the old
+daemon before running database work so its modules reload.
 
 ## Local operation history
 
@@ -305,11 +272,8 @@ runnel export users -e local --filter-file filter.json --sort '{"_id":1}' --limi
 runnel export users -e local --format json --output users.json
 ```
 
-`export` uses the worker's find path. Filter, projection, sort, skip and limit
-options work as they do for `find`. An environment is required; the database alias
-is inferred only when the environment has exactly one. The default format is
-canonical EJSON. JSON uses the same BSON conversion and precision checks as query
-results. The filename extension does not choose the format.
+`export` accepts the same filter, projection, sort, skip, limit, and format options
+as `find`. The filename extension does not choose the format.
 
 The file contains one JSON/EJSON array with a trailing newline. Stdout contains a
 JSON envelope with the resolved path, document count, file bytes, limits and
@@ -321,11 +285,10 @@ backup or stable pagination while documents change.
 
 `--output` is required and must name a new file in an existing directory. Relative
 paths resolve from the CLI working directory. Existing files, directories and
-links are refused. A complete sibling temporary file is synced, closed and linked
-to the destination without replacing a file created concurrently. This requires
-filesystem hard-link support. Ordinary failures remove the temporary file and
-leave the destination absent. Abrupt process termination can leave a private
-`.runnel-export-*.tmp` file beside the destination. Linux files use mode 0600;
+links are refused, including files created concurrently. Saving requires
+filesystem hard-link support. A failed save leaves no partial destination.
+Abrupt process termination can leave a private `.runnel-export-*.tmp` file beside
+the destination. Linux files use mode 0600;
 Windows relies on directory ACLs and has not yet been validated natively.
 
 History records one `export` database operation without the filename, filter or
@@ -334,9 +297,7 @@ file-save failure is reported by the CLI and does not rewrite that history entry
 
 ## Development
 
-Build at the repository root and invoke the compiled CLI. After rebuilding, stop
-any existing daemon before the next database command so its worker and protocol
-modules reload.
+Build at the repository root and invoke the compiled CLI:
 
 ```sh
 npm run build

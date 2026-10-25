@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
-import { parseArgs } from "node:util";
+import { type ParseArgsConfig, parseArgs } from "node:util";
 import type { DaemonResponse } from "./daemon-protocol.js";
 import type { QueryCommand, QueryValues } from "./query-command.js";
 import type { ScriptValues } from "./script-command.js";
@@ -61,60 +61,9 @@ Scripts stay attached. Interrupting the CLI stops active script work without rep
 Exports save bounded JSON/EJSON arrays to new files with --output.
 `;
 
-const queryCommands = ["describe", "find", "count", "aggregate", "export"];
-const queryOptions = [
-  "filter",
-  "filter-file",
-  "projection",
-  "projection-file",
-  "sort",
-  "sort-file",
-  "pipeline",
-  "pipeline-file",
-  "limit",
-  "skip",
-  "format",
-] as const;
-const optionCommands: Record<(typeof queryOptions)[number], readonly string[]> = {
-  filter: ["find", "count", "export"],
-  "filter-file": ["find", "count", "export"],
-  projection: ["find", "export"],
-  "projection-file": ["find", "export"],
-  sort: ["find", "export"],
-  "sort-file": ["find", "export"],
-  pipeline: ["aggregate"],
-  "pipeline-file": ["aggregate"],
-  limit: ["find", "aggregate", "export"],
-  skip: ["find", "export"],
-  format: [...queryCommands, "run"],
-};
-const scriptOptions = ["args", "args-file", "timeout"] as const;
-const managementActions: Record<string, readonly string[]> = {
-  connection: ["rotate", "remove"],
-  database: ["add", "rename", "remove"],
-};
-const commandUsage: Record<string, string> = {
-  help: "help [<command> [<action>]]",
-  guide: "guide [overview | query | scripts | errors | management | all | skill]",
-  skill: "skill [print | path]",
-  setup: "setup",
-  envs: "envs",
-  connections: "connections -e <environment>",
-  databases: "databases -e <environment>",
-  connection: "connection rotate | remove <name> -e <environment>",
-  database: "database add | rename | remove <alias> -e <environment> [options]",
-  history: "history",
-  list: "list -e <environment> [-d <database>]",
-  describe: "describe <collection> -e <environment> [options]",
-  find: "find <collection> -e <environment> [options]",
-  count: "count <collection> -e <environment> [options]",
-  aggregate:
-    "aggregate <collection> -e <environment> (--pipeline <json> | --pipeline-file <file>) [options]",
-  export: "export <collection> -e <environment> --output <file> [options]",
-  run: "run <script.mjs> -e <environment> [options]",
-  daemon: "daemon status | reset | stop",
-};
-const queryOptionHelp: Record<(typeof queryOptions)[number], string> = {
+const optionHelp = {
+  env: "-e, --env <environment>      Required environment name",
+  db: "-d, --db <database>          Alias; inferred only when there is one",
   filter: "--filter <json>              JSON/EJSON filter",
   "filter-file": "--filter-file <file>         Filter file; - reads stdin",
   projection: "--projection <json>          JSON/EJSON projection",
@@ -126,44 +75,141 @@ const queryOptionHelp: Record<(typeof queryOptions)[number], string> = {
   limit: "--limit <n>                  Result cap, default 100, maximum 1000",
   skip: "--skip <n>                   Offset, default 0, maximum 2147483647",
   format: "--format ejson | json        Canonical EJSON by default; json rejects unsafe Int64",
+  output: "--output <file>             New JSON/EJSON file; never replaces an existing destination",
+  args: "--args <json>               Plain JSON arguments, default {}",
+  "args-file": "--args-file <file>          Arguments file; - reads stdin",
+  timeout: "--timeout <duration>        One integer/unit: 1500ms, 30s, 5m, 1h; 0 disables it",
+  connection: "--connection <name>        Existing connection for a new alias",
+  database: "--database <physical-name> Physical MongoDB database name; access is not checked",
+  to: "--to <new-alias>           New alias for rename",
+} as const;
+type Option = keyof typeof optionHelp;
+type CommandDefinition = {
+  usage: string;
+  options?: readonly Option[];
+  actions?: readonly string[];
+  actionOptions?: Readonly<Record<string, readonly Option[]>>;
+  operand?: "collection" | "script" | "connection name" | "database alias";
+  defaultAction?: boolean;
 };
-function commandHelp(command: string, action?: string): string {
+const targetOptions = ["env", "db"] as const;
+const filterOptions = ["filter", "filter-file"] as const;
+const findOptions = [
+  ...targetOptions,
+  ...filterOptions,
+  "projection",
+  "projection-file",
+  "sort",
+  "sort-file",
+  "limit",
+  "skip",
+  "format",
+] as const;
+const commands: Record<string, CommandDefinition> = {
+  help: { usage: "help [<command> [<action>]]" },
+  guide: {
+    usage: "guide [overview | query | scripts | errors | management | all | skill]",
+    actions: ["overview", "query", "scripts", "errors", "management", "all", "skill"],
+    defaultAction: true,
+  },
+  skill: { usage: "skill [print | path]", actions: ["print", "path"], defaultAction: true },
+  setup: { usage: "setup" },
+  envs: { usage: "envs" },
+  connections: { usage: "connections -e <environment>", options: ["env"] },
+  databases: { usage: "databases -e <environment>", options: ["env"] },
+  connection: {
+    usage: "connection rotate | remove <name> -e <environment>",
+    options: ["env"],
+    actions: ["rotate", "remove"],
+    operand: "connection name",
+  },
+  database: {
+    usage: "database add | rename | remove <alias> -e <environment> [options]",
+    options: ["env"],
+    actions: ["add", "rename", "remove"],
+    actionOptions: { add: ["connection", "database"], rename: ["to"] },
+    operand: "database alias",
+  },
+  history: { usage: "history" },
+  list: { usage: "list -e <environment> [-d <database>]", options: targetOptions },
+  describe: {
+    usage: "describe <collection> -e <environment> [options]",
+    options: [...targetOptions, "format"],
+    operand: "collection",
+  },
+  find: {
+    usage: "find <collection> -e <environment> [options]",
+    options: findOptions,
+    operand: "collection",
+  },
+  count: {
+    usage: "count <collection> -e <environment> [options]",
+    options: [...targetOptions, ...filterOptions, "format"],
+    operand: "collection",
+  },
+  aggregate: {
+    usage:
+      "aggregate <collection> -e <environment> (--pipeline <json> | --pipeline-file <file>) [options]",
+    options: [...targetOptions, "pipeline", "pipeline-file", "limit", "format"],
+    operand: "collection",
+  },
+  export: {
+    usage: "export <collection> -e <environment> --output <file> [options]",
+    options: [...findOptions, "output"],
+    operand: "collection",
+  },
+  run: {
+    usage: "run <script.mjs> -e <environment> [options]",
+    options: [...targetOptions, "format", "args", "args-file", "timeout"],
+    operand: "script",
+  },
+  daemon: { usage: "daemon status | reset | stop", actions: ["status", "reset", "stop"] },
+};
+const options: NonNullable<ParseArgsConfig["options"]> = {
+  ...Object.fromEntries(Object.keys(optionHelp).map((key) => [key, { type: "string" as const }])),
+  help: { type: "boolean", short: "h" },
+  version: { type: "boolean", short: "v" },
+  env: { type: "string", short: "e" },
+  db: { type: "string", short: "d" },
+} as const;
+
+function supportsOption(
+  definition: CommandDefinition | undefined,
+  action: string | undefined,
+  key: string
+) {
+  if (key === "help") return true;
+  if (key === "version") return definition === undefined;
+  const byAction = definition?.actionOptions;
+  const actionOptions =
+    action !== undefined && byAction !== undefined && Object.hasOwn(byAction, action)
+      ? byAction[action]
+      : undefined;
+  const supported = [...(definition?.options ?? []), ...(actionOptions ?? [])];
+  return supported.some((option) => option === key);
+}
+
+function commandHelp(command: string, definition: CommandDefinition, action?: string): string {
   const options = ["-h, --help                  Show command help"];
-  if (supportsOption(command, action, "env"))
-    options.push("-e, --env <environment>      Required environment name");
-  if (supportsOption(command, action, "db"))
-    options.push("-d, --db <database>          Alias; inferred only when there is one");
-  for (const key of queryOptions)
-    if (supportsOption(command, action, key)) options.push(queryOptionHelp[key]);
-  if (command === "export")
-    options.push(
-      "--output <file>             New JSON/EJSON file; never replaces an existing destination"
-    );
+  const supported = [
+    ...(definition.options ?? []),
+    ...(action === undefined
+      ? Object.values(definition.actionOptions ?? {}).flat()
+      : (definition.actionOptions?.[action] ?? [])),
+  ];
+  for (const key of supported) options.push(optionHelp[key]);
   if (command === "run")
-    options.push(
-      "--args <json>               Plain JSON arguments, default {}",
-      "--args-file <file>          Arguments file; - reads stdin",
-      "--timeout <duration>        One integer/unit: 1500ms, 30s, 5m, 1h; 0 disables it",
-      "                           For 2m30s use 150s; catalog default is 5m"
-    );
+    options.push("                           For 2m30s use 150s; catalog default is 5m");
   if (command === "connection")
     options.push(
       "rotate                     Hidden interactive URI replacement; preserves aliases",
       "remove                     Remove an unused registration and its stored credential",
       "Remove database aliases first. These commands do not drop MongoDB data."
     );
-  if (command === "database") {
-    if (action === undefined || action === "add")
-      options.push(
-        "--connection <name>        Existing connection for a new alias",
-        "--database <physical-name> Physical MongoDB database name; access is not checked"
-      );
-    if (action === undefined || action === "rename")
-      options.push("--to <new-alias>           New alias for rename");
+  if (command === "database")
     options.push(
       "Only catalog aliases change. MongoDB databases and collections are not modified."
     );
-  }
   const details =
     command === "run"
       ? "\nDefault-export an async function receiving { db, args, connect, signal, bson }.\nUse connect({ env, db }) for another named target. Return bounded data under\ndata.value; console output is discarded. Script args are plain JSON. Pass large\nintegers as strings and construct bson.Long.fromString(args.value) in the script.\nRun runnel guide scripts for examples and reset/cancellation rules.\n"
@@ -183,52 +229,9 @@ function commandHelp(command: string, action?: string): string {
                 ? " --to <new-alias>"
                 : ""
           }`
-        : commandUsage[command];
+        : definition.usage;
   return `Runnel ${command}\n\nUsage:\n  runnel ${usage}\n\nOptions:\n  ${options.join("\n  ")}\n${details}\nOffline agent instructions: runnel guide. Bundled skill: runnel skill path.\n`;
 }
-const actionChoices: Record<string, readonly string[]> = {
-  ...managementActions,
-  daemon: ["status", "reset", "stop"],
-  skill: ["print", "path"],
-  guide: ["overview", "query", "scripts", "errors", "management", "all", "skill"],
-};
-const options = {
-  help: { type: "boolean", short: "h" },
-  version: { type: "boolean", short: "v" },
-  env: { type: "string", short: "e" },
-  db: { type: "string", short: "d" },
-  output: { type: "string" },
-  connection: { type: "string" },
-  database: { type: "string" },
-  to: { type: "string" },
-  ...Object.fromEntries(queryOptions.map((key) => [key, { type: "string" }])),
-  ...Object.fromEntries(scriptOptions.map((key) => [key, { type: "string" }])),
-} as const;
-
-function supportsOption(command: string | undefined, action: string | undefined, key: string) {
-  if (key === "help") return true;
-  if (key === "version") return command === undefined;
-  if (key === "env")
-    return [
-      "connection",
-      "database",
-      "connections",
-      "databases",
-      "list",
-      "run",
-      ...queryCommands,
-    ].includes(command ?? "");
-  if (key === "db") return ["list", "run", ...queryCommands].includes(command ?? "");
-  if (key === "output") return command === "export";
-  if (key === "connection" || key === "database") return command === "database" && action === "add";
-  if (key === "to") return command === "database" && action === "rename";
-  if (scriptOptions.some((option) => option === key)) return command === "run";
-  return (
-    Object.hasOwn(optionCommands, key) &&
-    optionCommands[key as keyof typeof optionCommands].includes(command ?? "")
-  );
-}
-
 async function main(): Promise<number> {
   // Tokenize without Node's diagnostics: they can include arbitrary argument values.
   // Validate every token, including repeated options, before importing runtime modules.
@@ -236,19 +239,20 @@ async function main(): Promise<number> {
   const helpCommand = parsed.positionals[0] === "help";
   const positionals = helpCommand ? parsed.positionals.slice(1) : parsed.positionals;
   const command = positionals[0];
-  const knownCommand = command !== undefined && Object.hasOwn(commandUsage, command);
+  const definition =
+    command !== undefined && Object.hasOwn(commands, command) ? commands[command] : undefined;
   const fail = (message: string): number => {
-    const target = knownCommand ? `help ${command}` : "help";
+    const target = definition ? `help ${command}` : "help";
     process.stderr.write(`${message} Run runnel ${target} for usage.\n`);
     return 1;
   };
-  if (command !== undefined && !knownCommand) return fail("Unknown command.");
+  if (command !== undefined && !definition) return fail("Unknown command.");
   for (const token of parsed.tokens) {
     if (token.kind !== "option") continue;
     const key = token.name;
-    if (!Object.hasOwn(options, key)) return fail("Unknown option.");
+    const option = Object.hasOwn(options, key) ? options[key] : undefined;
+    if (option === undefined) return fail("Unknown option.");
     // Only fixed, known option names may appear in diagnostics.
-    const option = options[key as keyof typeof options];
     if (
       option.type === "string" &&
       (token.value === undefined ||
@@ -259,7 +263,7 @@ async function main(): Promise<number> {
       );
     if (option.type === "boolean" && token.value !== undefined)
       return fail(`Option --${key} does not take a value.`);
-    if ((helpCommand && key !== "help") || !supportsOption(command, positionals[1], key))
+    if ((helpCommand && key !== "help") || !supportsOption(definition, positionals[1], key))
       return fail(`Unsupported option --${key} for this command or action.`);
   }
   const values = parsed.values as QueryValues &
@@ -272,41 +276,31 @@ async function main(): Promise<number> {
       to?: string;
     };
   const wantsHelp = helpCommand || values.help;
-  const choices =
-    command !== undefined && Object.hasOwn(actionChoices, command)
-      ? actionChoices[command]
-      : undefined;
+  const choices = definition?.actions;
   if (choices !== undefined) {
     const action = positionals[1];
     if (action !== undefined && !choices.includes(action))
       return fail(
         `Invalid ${command} ${command === "guide" ? "topic" : "action"}. Choose ${choices.join(", ")}.`
       );
-    if (!wantsHelp && action === undefined && command !== "skill" && command !== "guide")
+    if (!wantsHelp && action === undefined && !definition?.defaultAction)
       return fail(`Missing ${command} action. Choose ${choices.join(", ")}.`);
   }
-  const management = command !== undefined && Object.hasOwn(managementActions, command);
   const maximum =
-    management && !helpCommand
-      ? 3
-      : choices !== undefined ||
-          (!helpCommand && (command === "run" || queryCommands.includes(command ?? "")))
-        ? 2
-        : command === undefined
-          ? 0
-          : 1;
+    definition === undefined
+      ? 0
+      : 1 +
+        Number(choices !== undefined) +
+        Number(!helpCommand && definition.operand !== undefined);
   if (positionals.length > maximum) return fail("Unexpected operand.");
-  if (!wantsHelp) {
-    if (management && positionals.length < 3)
-      return fail(
-        `Missing ${command === "connection" ? "connection name" : "database alias"} operand.`
-      );
-    if (command === "run" && positionals.length < 2) return fail("Missing script operand.");
-    if (queryCommands.includes(command ?? "") && positionals.length < 2)
-      return fail("Missing collection operand.");
-  }
+  if (!wantsHelp && definition?.operand !== undefined && positionals.length < maximum)
+    return fail(`Missing ${definition.operand} operand.`);
   if (wantsHelp || (positionals.length === 0 && !values.version)) {
-    process.stdout.write(command === undefined ? help : commandHelp(command, positionals[1]));
+    process.stdout.write(
+      command === undefined || definition === undefined
+        ? help
+        : commandHelp(command, definition, positionals[1])
+    );
     return 0;
   }
 
@@ -454,7 +448,7 @@ async function main(): Promise<number> {
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return result.ok ? 0 : 1;
   }
-  if (command === "list" || command === "daemon" || queryCommands.includes(command ?? "")) {
+  if (command === "list" || command === "daemon" || definition?.operand === "collection") {
     const [{ catalogDirectory }, { daemonCommand, executeWithDaemon }] = await Promise.all([
       import("./catalog.js"),
       import("./daemon-client.js"),

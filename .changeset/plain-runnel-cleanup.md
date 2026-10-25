@@ -2,4 +2,4 @@
 "@abijith-suresh/runnel": patch
 ---
 
-Simplify CLI internals and test setup, and update documentation to describe current behavior.
+Consolidate CLI command definitions and catalog locking, simplify worker dispatch, and remove duplicated script-test setup. Shorten user documentation while keeping credential, recovery, and result-limit guidance.

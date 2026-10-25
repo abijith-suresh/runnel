@@ -20,6 +20,22 @@ const busy = (): CatalogWriteError => ({
   message: "Another process is updating the catalog. Retry shortly.",
 });
 
+/** Catalog commits and obsolete-secret cleanup must hold the same lock. */
+export async function acquireCatalogLock(directory: string) {
+  const resolved = await realpath(directory);
+  const state = { compromised: false, committed: false };
+  const release = await lock(join(resolved, "catalog.json"), {
+    realpath: false,
+    stale: 10000,
+    update: 3000,
+    retries: { retries: 10, factor: 1, minTimeout: 100, maxTimeout: 100 },
+    onCompromised: () => {
+      state.compromised = true;
+    },
+  });
+  return { directory: resolved, release, state };
+}
+
 /** Serialize a read/modify/write transaction. The updater must not perform external side effects. */
 export function updateCatalog<E>(
   directory: string,
@@ -28,18 +44,7 @@ export function updateCatalog<E>(
   const acquire = Effect.tryPromise({
     try: async () => {
       await mkdir(directory, { recursive: true, mode: 0o700 });
-      const resolved = await realpath(directory);
-      const state = { compromised: false, committed: false };
-      const release = await lock(join(resolved, "catalog.json"), {
-        realpath: false,
-        stale: 10000,
-        update: 3000,
-        retries: { retries: 10, factor: 1, minTimeout: 100, maxTimeout: 100 },
-        onCompromised: () => {
-          state.compromised = true;
-        },
-      });
-      return { directory: resolved, release, state };
+      return acquireCatalogLock(directory);
     },
     catch: (error) =>
       (error as NodeJS.ErrnoException).code === "ELOCKED" ? busy() : unavailable(),
