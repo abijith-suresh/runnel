@@ -39,6 +39,7 @@ test("help and no arguments print available options on stdout", () => {
 });
 
 test("command help works without operands or catalog access and lists only supported options", () => {
+  const helpByCommand = new Map<string, string>();
   for (const command of [
     "guide",
     "skill",
@@ -65,18 +66,20 @@ test("command help works without operands or catalog access and lists only suppo
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stderr, "");
     assert.match(result.stdout, new RegExp(`Usage:\\n  runnel ${command}`));
+    helpByCommand.set(command, result.stdout);
   }
   const find = run(["find", "users", "-h"]).stdout;
   for (const option of ["filter", "filter-file", "projection", "sort", "skip", "format"])
     assert(find.includes(`--${option}`));
   assert(!find.includes("--pipeline"));
-  assert(!run(["count", "--help"]).stdout.includes("--limit"));
-  const scripts = run(["run", "--help"]).stdout;
+  assert.equal(helpByCommand.get("count")?.includes("--limit"), false);
+  const scripts = helpByCommand.get("run");
+  assert(scripts);
   assert.match(scripts, /--args-file/);
   assert.match(scripts, /1500ms/);
   assert.match(scripts, /For 2m30s use 150s/);
   assert(!scripts.includes("--filter"));
-  assert.match(run(["export", "--help"]).stdout, /never replaces/);
+  assert.match(helpByCommand.get("export") ?? "", /never replaces/);
   assert.match(run(["daemon", "status", "-h"]).stdout, /status \| reset \| stop/);
 });
 

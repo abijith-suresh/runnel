@@ -10,7 +10,8 @@ and prevents later acquisition. Returned `Db` objects are actual local driver
 handles. They must stay inside the worker and never cross IPC.
 
 Build with `npm run build` at the repository root. Unit tests inject a client
-factory and need no database. See the current architecture for runtime defaults.
+factory and need no database. Run them with
+`npm test --workspace @abijith-suresh/runnel-mongodb`.
 
 See [the repository](https://github.com/abijith-suresh/runnel) for design and
 development documentation. This package has not been published.

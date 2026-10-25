@@ -1,11 +1,7 @@
 # Runnel CLI
 
-`@abijith-suresh/runnel` is the scoped public CLI package, with executable name
-`runnel`. Bare npm `runnel` belongs to an existing package. The CLI depends on
-the matching public core and MongoDB packages, plus Effect v4.
-
-The CLI supports information flags, human setup, offline discovery, collection
-listing, query commands, attached scripts, history, and daemon lifecycle commands:
+`@abijith-suresh/runnel` provides the `runnel` executable for named MongoDB access.
+A human registers credentials through `setup`; agents query database aliases.
 
 ```sh
 runnel --help     # also -h; no arguments show help too
@@ -32,8 +28,10 @@ runnel daemon reset
 runnel daemon stop
 ```
 
-Help lists available commands and flags. `runnel help` shows the same help as
-`runnel --help` or no arguments. `runnel help <command>` and
+## Help and syntax
+
+`runnel help` shows the same help as `runnel --help` or no arguments.
+`runnel help <command>` and
 `runnel <command> --help` list that command's options without requiring operands,
 a catalog, or database access. For a management action, use
 `runnel help database rename` or `runnel database rename --help` to see its usage
@@ -55,8 +53,10 @@ operands starting with a dash; tokens after it are operands, not flags.
 For short options, use `-e local` or `-elocal`; use the long form `--env=local`
 when writing an equals sign. `-e=local` treats `=local` as the environment name.
 
-Discovery writes a JSON envelope to
-stdout, with `ok: true` and `data`, or `ok: false` and a structured `error`.
+## Discovery and daemon
+
+Discovery writes a JSON envelope to stdout, with `ok: true` and `data`, or
+`ok: false` and a structured `error`.
 Discovery errors exit with status 1. `connections` and `databases` require an
 explicit `-e`/`--env`. They list configured mappings without connecting to a
 database or reading credentials. Connection output omits secret references.
@@ -72,23 +72,6 @@ worker. `stop` closes the worker and shuts down the daemon. These lifecycle
 commands never start a missing daemon. The daemon shuts down after five minutes
 of inactivity by default; active and queued work prevent shutdown. Stop the old
 daemon after installing another Runnel version before running database work.
-
-The library entry point still exports an empty
-module; there is no public CLI composition API.
-
-For local development, build at the repository root and invoke the compiled CLI.
-After rebuilding, stop any existing daemon before the next database command so
-its worker and protocol modules reload.
-
-```sh
-npm run build
-node apps/cli/dist/cli.js --help
-node apps/cli/dist/cli.js --version
-node apps/cli/dist/cli.js daemon stop
-node apps/cli/dist/cli.js envs
-```
-
-Run CLI tests with `npm test --workspace @abijith-suresh/runnel`.
 
 ## Offline agent instructions
 
@@ -114,16 +97,7 @@ Installation includes the skill without changing agent configuration or writing
 to agent-specific directories. The guide explains discovery by name, BSON
 precision, truncation, the native script contract, cancellation, and recovery.
 
-`npm run pack:check` checks
-all package artifacts and imports in a temporary local consumer without global
-installation or publication.
-The repository's [local testing guide](../../CONTRIBUTING.md#local-testing) covers
-`npm run install:local` for a persistent local installation, manual setup and
-`npm run check:mongodb`, an optional installed-package check against a local test
-server with native credential storage.
-
-See [the repository](https://github.com/abijith-suresh/runnel) for planned commands
-and development documentation. This package has not been published.
+## Catalog
 
 The catalog is `catalog.json` under `$XDG_CONFIG_HOME/runnel` or
 `~/.config/runnel` on Linux, and `%APPDATA%/runnel` on Windows. An absolute
@@ -131,9 +105,7 @@ The catalog is `catalog.json` under `$XDG_CONFIG_HOME/runnel` or
 returns empty discovery results. Invalid or unreadable catalogs fail; they do
 not silently become empty. Human setup creates and updates this catalog with
 serialized atomic replacement; it stores only OS secret references.
-Its schema is summarized in
-[the architecture section](../../README.md#architecture).
-
+See [the architecture section](../../README.md#architecture) for its schema.
 
 ## Registering a connection
 
@@ -196,7 +168,6 @@ Existing aliases cannot be overwritten. Remove all aliases referring to a
 connection before `runnel connection remove primary -e local`. Connection removal
 deletes the registration and removes its obsolete credential from OS storage.
 An empty environment remains available for later setup.
-
 
 ## Querying a named database
 
@@ -360,3 +331,24 @@ Windows relies on directory ACLs and has not yet been validated natively.
 History records one `export` database operation without the filename, filter or
 returned documents. Its outcome describes worker execution. A subsequent local
 file-save failure is reported by the CLI and does not rewrite that history entry.
+
+## Development
+
+Build at the repository root and invoke the compiled CLI. After rebuilding, stop
+any existing daemon before the next database command so its worker and protocol
+modules reload.
+
+```sh
+npm run build
+node apps/cli/dist/cli.js --help
+node apps/cli/dist/cli.js daemon stop
+node apps/cli/dist/cli.js envs
+```
+
+Run CLI tests with `npm test --workspace @abijith-suresh/runnel`. The package's
+library entry point is empty; it has no public composition API.
+
+The [local testing guide](../../CONTRIBUTING.md#local-testing) covers persistent
+tarball installation, manual setup, and optional MongoDB integration checks.
+`npm run pack:check` validates tarball installs in a temporary consumer without
+global installation or publication. This package has not been published.

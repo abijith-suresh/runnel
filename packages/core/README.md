@@ -1,11 +1,10 @@
 # Runnel core
 
-`@abijith-suresh/runnel-core` is a public package boundary for future provider
-contracts and shared application concepts. It must not import concrete providers
-or applications. Effect v4 is declared for future orchestration.
+`@abijith-suresh/runnel-core` selects a database alias from supplied environment
+names. It performs no I/O and does not import concrete providers or applications.
 
-Core exports `resolveDatabaseTarget`. Supply a read-only map of environment names
-to sets of database alias names, and the requested `env` and optional `db`:
+Pass `resolveDatabaseTarget` a read-only map of environment names to sets of
+database alias names, the requested `env`, and an optional `db`:
 
 ```ts
 import { resolveDatabaseTarget } from "@abijith-suresh/runnel-core";
@@ -22,8 +21,6 @@ use `EnvironmentRequired`, `EnvironmentNotFound`, `NoDatabases`, `DatabaseRequir
 or `DatabaseNotFound` tags, with relevant requested names. Use `Result.isSuccess`
 or `Result.isFailure` to narrow the result and access its `success` or `failure`.
 
-This is an in-memory selection API, not a persisted catalog schema or CLI error
-envelope. It performs no I/O and has no provider contracts or database behavior.
 Build with `npm run build` at the repository root; run its tests with
 `npm test --workspace @abijith-suresh/runnel-core`.
 

@@ -27,7 +27,7 @@ npm run verify
 | `npm run changeset:status` | Shows Changesets' pending release plan |
 | `npm run changeset:check` | Checks a PR using full `BASE_SHA` and `HEAD_SHA` environment values |
 | `npm run pack:check` | Builds, checks pack destinations, and validates isolated tarball installs |
-| `npm run verify` | Runs the complete development baseline verification |
+| `npm run verify` | Runs all required local checks |
 | `npm run check:native-credentials` | Optional OS credential round-trip with one synthetic value and cleanup; requires an unlocked vault |
 | `npm run check:mongodb` | Optional installed-tarball smoke check against a loopback test MongoDB server and native credential storage |
 | `npm run check:mongodb-auth` | Optional disposable authenticated MongoDB check using rootless Podman and synthetic native credentials |
@@ -69,13 +69,12 @@ git push -u origin HEAD
 gh pr create
 ```
 
-The initial baseline bootstraps `main` once. Future changes go through PRs.
+All changes go through PRs.
 GitHub requires the `Baseline verified` check, which combines quality,
-Changeset policy, PR title, and native Windows quality results. `main` requires an up-to-date branch and
-resolved conversations. No approving review is required, so the owner can merge
-their own PR after checks pass. Administrators are included; force pushes and
-branch deletion are blocked. The owner can change repository settings, as with
-any owner-managed repository. Merge using GitHub's squash merge after review.
+Changeset policy, PR title, and native Windows quality results. `main` requires
+an up-to-date branch and resolved conversations, including for administrators.
+No approving review is required. Merge using GitHub's squash merge after review
+and passing checks. Force pushes and branch deletion are blocked.
 
 CI reuses the owner's shared npm quality and Conventional Commit title workflows
 at a pinned commit. It runs with read-only permissions and no release credentials.
@@ -84,11 +83,9 @@ native credential probe. POSIX-only filesystem and signal tests stay on Linux.
 Native MongoDB and interactive terminal behavior still need separate platform
 integration testing. There is no publication or auto-merge workflow.
 
-The maintainer authorized a local MongoDB CLI milestone: incremental development
-until Runnel can be installed and tested locally against MongoDB. Each slice uses
-a branch, a patch Changeset, focused tests, full verification, and a fresh
-independent review; merge only when required checks pass. Publication, MCP, and
-additional providers are outside that milestone.
+Local MongoDB CLI changes use a branch, a patch Changeset, focused tests, full
+verification, and a fresh independent review. Publication, MCP, and additional
+providers are outside that work.
 
 ## Releases
 
@@ -96,7 +93,7 @@ All Runnel releases advance exactly one patch. This rule includes functionality
 additions and continues after 1.0. Minor or major Changesets, prerelease versions,
 skipped increments, downgrades, and unaligned workspace versions are rejected.
 The three public packages share a Changesets fixed group and use the same exact
-internal version. They start at `0.0.1` and are not yet published.
+internal version. They are not yet published.
 
 `npm run release-policy` checks pending Changesets, the fixed group, package
 versions, dependency direction, public package metadata, Effect v4 pins, and the
@@ -126,12 +123,10 @@ It cannot mix source or package-script edits into a release. Do not invoke
 unguarded `changeset version`, and do not combine new functionality with a version
 PR. Review and merge it only after required checks pass.
 
-The baseline deliberately has no npm publication command, release workflow,
-GitHub release creation, registry credential, or auto-merge workflow. Versioning
-is local and PR based, and packaging verification never publishes. A future,
-separately authorized release task must define explicit publication controls and
-publish the three matching artifacts; do not enable publication as a side effect
-of a feature PR.
+Versioning is local and PR based. Packaging verification never publishes.
+The repository has no publication command, release workflow, registry credential,
+or auto-merge workflow. Publication requires a separately authorized task with
+explicit controls for publishing the three matching artifacts.
 
 ## Local testing
 
@@ -208,10 +203,9 @@ Community image bound to IPv4 loopback. The check creates two random
 `runnel_check_` databases, two synthetic credential entries, and a private
 temporary catalog, then removes them and stops its daemon. Abrupt termination can
 leave fixtures behind. The check passed on Linux in WSL with MongoDB 8.0.32 and
-native Secret Service storage. Native Windows MongoDB access, interactive
-terminal setup and Ctrl+C behavior, and authenticated permission-denial
-integration remain separate checks. `npm run verify` stays independent of MongoDB
-and OS credential configuration.
+native Secret Service storage. For authenticated permission checks, use
+`check:mongodb-auth` below. Native Windows MongoDB access, interactive terminal
+setup, and Ctrl+C behavior still need separate integration testing.
 
 `npm run check:mongodb-auth` creates its own authenticated MongoDB server using
 rootless Podman and `docker.io/mongodb/mongodb-community-server:8.0-ubuntu2204`.
@@ -235,10 +229,10 @@ and TypeScript references in build configs. Use `.js` import specifiers in ESM
 TypeScript when importing relative files. Keep new packages out until a real
 ownership or distribution boundary needs them.
 
-Effect v4 is the agreed effect system for future orchestration. Model fallible
-operations with typed Effects and resource scopes when implementation begins;
-pure transformations can remain ordinary functions. Do not silently use v3 APIs
-or replace v4. The official MongoDB Node driver belongs to the adapter.
+Effect v4 is the project's effect system. Model fallible operations with typed
+Effects and resource scopes. Pure transformations can remain ordinary functions.
+Do not silently use v3 APIs or replace v4. The official MongoDB Node driver
+belongs to the adapter.
 
 [AGENTS.md](AGENTS.md) states product intent and philosophy. [README.md](README.md)
 contains status and a current architecture summary. This file owns the development

@@ -129,22 +129,12 @@ const queryOptionHelp: Record<(typeof queryOptions)[number], string> = {
 };
 function commandHelp(command: string, action?: string): string {
   const options = ["-h, --help                  Show command help"];
-  if (
-    [
-      "connection",
-      "database",
-      "connections",
-      "databases",
-      "list",
-      "run",
-      ...queryCommands,
-    ].includes(command)
-  )
+  if (supportsOption(command, action, "env"))
     options.push("-e, --env <environment>      Required environment name");
-  if (["list", "run", ...queryCommands].includes(command))
+  if (supportsOption(command, action, "db"))
     options.push("-d, --db <database>          Alias; inferred only when there is one");
   for (const key of queryOptions)
-    if (optionCommands[key].includes(command)) options.push(queryOptionHelp[key]);
+    if (supportsOption(command, action, key)) options.push(queryOptionHelp[key]);
   if (command === "export")
     options.push(
       "--output <file>             New JSON/EJSON file; never replaces an existing destination"
@@ -471,35 +461,37 @@ async function main(): Promise<number> {
     ]);
     let result: DaemonResponse | import("./export-command.js").ExportResponse;
     try {
-      result =
-        command === "daemon"
-          ? await daemonCommand(catalogDirectory(), positionals[1] as "status" | "reset" | "stop")
-          : values.env === undefined
-            ? {
-                ok: false,
-                error: {
-                  code: "EnvironmentRequired",
-                  message: "Specify an environment with -e or --env.",
-                },
-              }
-            : command === "export"
-              ? await (await import("./export-command.js")).runExportCommand(
-                  catalogDirectory(),
-                  positionals[1] ?? "",
-                  values
-                )
-              : command !== "list"
-                ? await (await import("./query-command.js")).runQueryCommand(
-                    catalogDirectory(),
-                    command as QueryCommand,
-                    positionals[1] ?? "",
-                    values
-                  )
-                : await executeWithDaemon(catalogDirectory(), {
-                    operation: "list",
-                    env: values.env,
-                    ...(values.db === undefined ? {} : { db: values.db }),
-                  });
+      if (command === "daemon") {
+        result = await daemonCommand(
+          catalogDirectory(),
+          positionals[1] as "status" | "reset" | "stop"
+        );
+      } else if (values.env === undefined) {
+        result = {
+          ok: false,
+          error: {
+            code: "EnvironmentRequired",
+            message: "Specify an environment with -e or --env.",
+          },
+        };
+      } else if (command === "export") {
+        const { runExportCommand } = await import("./export-command.js");
+        result = await runExportCommand(catalogDirectory(), positionals[1] ?? "", values);
+      } else if (command === "list") {
+        result = await executeWithDaemon(catalogDirectory(), {
+          operation: "list",
+          env: values.env,
+          ...(values.db === undefined ? {} : { db: values.db }),
+        });
+      } else {
+        const { runQueryCommand } = await import("./query-command.js");
+        result = await runQueryCommand(
+          catalogDirectory(),
+          command as QueryCommand,
+          positionals[1] ?? "",
+          values
+        );
+      }
     } catch {
       result = {
         ok: false,
