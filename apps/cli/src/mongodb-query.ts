@@ -85,7 +85,6 @@ async function collect(
   }
 }
 
-/** Validate supplied inputs before target resolution, credential lookup, or pool acquisition. */
 function parseSort(text: string): Sort {
   const input = parseQueryObject(text);
   return Object.fromEntries(
@@ -98,6 +97,7 @@ function parseSort(text: string): Sort {
     })
   );
 }
+/** Validate supplied inputs before target resolution, credential lookup, or pool acquisition. */
 export function prepareQuery(request: QueryOperation): {
   filter?: Document;
   projection?: Document;

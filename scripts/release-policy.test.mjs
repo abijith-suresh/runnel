@@ -100,20 +100,16 @@ test("ordinary PRs require a newly added patch note and cannot edit merged notes
   f.write("docs/example.md", "Documentation change.\n");
   let head = f.commit();
   assert.throws(() => checkPullRequest(f.root, f.base, head), /must add/);
+  f.write(".changeset/new.md", note("minor"));
+  head = f.commit();
+  assert.throws(() => checkPullRequest(f.root, f.base, head), /only patch/);
+  assert.throws(() => validateRepository(f.root), /only patch/);
   f.write(".changeset/new.md", note());
   head = f.commit();
   assert.match(checkPullRequest(f.root, f.base, head), /Ordinary PR/);
   f.write(".changeset/pending.md", note("minor"));
   head = f.commit();
   assert.throws(() => checkPullRequest(f.root, f.base, head), /immutable/);
-});
-
-test("minor Changesets fail both PR checks and repository checks", (t) => {
-  const f = fixture(t);
-  f.write(".changeset/new.md", note("minor"));
-  const head = f.commit();
-  assert.throws(() => checkPullRequest(f.root, f.base, head), /only patch/);
-  assert.throws(() => validateRepository(f.root), /only patch/);
 });
 
 test("version PRs consume notes, advance the fixed group, and reject hidden changes", (t) => {

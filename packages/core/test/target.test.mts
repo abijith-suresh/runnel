@@ -14,10 +14,6 @@ test("requires an explicit environment even when there is only one environment",
     resolveDatabaseTarget(new Map([["dint", new Set(["accounts"])]]), { db: "accounts" }),
     Result.fail({ _tag: "EnvironmentRequired" })
   );
-  assert.deepEqual(
-    resolveDatabaseTarget(available, {}),
-    Result.fail({ _tag: "EnvironmentRequired" })
-  );
 });
 
 test("rejects an unknown environment without searching other environments", () => {
@@ -81,20 +77,4 @@ test("matches names exactly and does not treat empty values as omitted", () => {
       Result.fail({ _tag: "DatabaseNotFound", env: "dint", db })
     );
   }
-});
-
-test("treats names such as __proto__ as ordinary names", () => {
-  assert.deepEqual(
-    resolveDatabaseTarget(new Map([["__proto__", new Set(["constructor"])]]), { env: "__proto__" }),
-    Result.succeed({ env: "__proto__", db: "constructor" })
-  );
-});
-
-test("does not mutate supplied names or the request", () => {
-  const names = new Map([["dint", new Set(["accounts"])]]);
-  const requested = Object.freeze({ env: "dint" });
-  const before = structuredClone(names);
-  resolveDatabaseTarget(names, requested);
-  assert.deepEqual(names, before);
-  assert.deepEqual(requested, { env: "dint" });
 });

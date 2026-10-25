@@ -1,10 +1,7 @@
-import { realpath } from "node:fs/promises";
-import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
-import { lock } from "proper-lockfile";
 import { type Catalog, isCatalogName, isDatabaseName, readCatalog } from "./catalog.js";
-import { updateCatalog } from "./catalog-write.js";
+import { acquireCatalogLock, updateCatalog } from "./catalog-write.js";
 import { executeWithDaemon } from "./daemon-client.js";
 import { credentialStore } from "./secrets.js";
 import { PromptError, type SetupPrompt, terminalPrompt } from "./setup-prompt.js";
@@ -62,8 +59,18 @@ function databaseIn(env: Environment, name: string) {
   return value ? Effect.succeed(value) : Effect.fail(error("DatabaseNotFound"));
 }
 
-function replaceEnvironment(catalog: Catalog, env: string, value: Environment): Catalog {
-  return { ...catalog, environments: { ...catalog.environments, [env]: value } };
+function updateEnvironment<E>(
+  directory: string,
+  name: string,
+  update: (current: Environment) => Effect.Effect<Environment, E>
+) {
+  return updateCatalog(directory, (catalog) =>
+    Effect.gen(function* () {
+      const current = yield* environment(catalog, name);
+      const next = yield* update(current);
+      return { ...catalog, environments: { ...catalog.environments, [name]: next } };
+    })
+  );
 }
 
 async function run<A>(action: Effect.Effect<A, ManagementError>): Promise<ManagementResult<A>> {
@@ -87,20 +94,7 @@ async function cleanObsoleteSecret(
     const cleaned = await Effect.runPromise(
       Effect.acquireUseRelease(
         Effect.tryPromise({
-          try: async () => {
-            const resolved = await realpath(directory);
-            const state = { compromised: false };
-            const release = await lock(join(resolved, "catalog.json"), {
-              realpath: false,
-              stale: 10000,
-              update: 3000,
-              retries: { retries: 10, factor: 1, minTimeout: 100, maxTimeout: 100 },
-              onCompromised: () => {
-                state.compromised = true;
-              },
-            });
-            return { directory: resolved, release, state };
-          },
+          try: () => acquireCatalogLock(directory),
           catch: () => error("ManagementUnavailable"),
         }),
         (owner) =>
@@ -137,19 +131,18 @@ export async function addDatabase(
         !isDatabaseName(input.database)
       )
         return yield* Effect.fail(error("ManagementInvalid"));
-      yield* updateCatalog(directory, (catalog) =>
+      yield* updateEnvironment(directory, input.env, (current) =>
         Effect.gen(function* () {
-          const current = yield* environment(catalog, input.env);
           yield* connectionIn(current, input.connection);
           if (Object.hasOwn(current.databases, input.alias))
             return yield* Effect.fail(error("DatabaseNameConflict"));
-          return replaceEnvironment(catalog, input.env, {
+          return {
             ...current,
             databases: {
               ...current.databases,
               [input.alias]: { connection: input.connection, database: input.database },
             },
-          });
+          };
         })
       );
       return {
@@ -170,16 +163,15 @@ export async function renameDatabase(
     Effect.gen(function* () {
       if (![input.env, input.alias, input.to].every(isCatalogName))
         return yield* Effect.fail(error("ManagementInvalid"));
-      yield* updateCatalog(directory, (catalog) =>
+      yield* updateEnvironment(directory, input.env, (current) =>
         Effect.gen(function* () {
-          const current = yield* environment(catalog, input.env);
           const alias = yield* databaseIn(current, input.alias);
           if (Object.hasOwn(current.databases, input.to))
             return yield* Effect.fail(error("DatabaseNameConflict"));
           const databases = { ...current.databases };
           delete databases[input.alias];
           databases[input.to] = alias;
-          return replaceEnvironment(catalog, input.env, { ...current, databases });
+          return { ...current, databases };
         })
       );
       return { env: input.env, alias: input.alias, to: input.to };
@@ -195,13 +187,12 @@ export async function removeDatabase(
     Effect.gen(function* () {
       if (![input.env, input.alias].every(isCatalogName))
         return yield* Effect.fail(error("ManagementInvalid"));
-      yield* updateCatalog(directory, (catalog) =>
+      yield* updateEnvironment(directory, input.env, (current) =>
         Effect.gen(function* () {
-          const current = yield* environment(catalog, input.env);
           yield* databaseIn(current, input.alias);
           const databases = { ...current.databases };
           delete databases[input.alias];
-          return replaceEnvironment(catalog, input.env, { ...current, databases });
+          return { ...current, databases };
         })
       );
       return { env: input.env, alias: input.alias };
@@ -219,16 +210,15 @@ export async function removeConnection(
     Effect.gen(function* () {
       if (![input.env, input.connection].every(isCatalogName))
         return yield* Effect.fail(error("ManagementInvalid"));
-      yield* updateCatalog(directory, (catalog) =>
+      yield* updateEnvironment(directory, input.env, (current) =>
         Effect.gen(function* () {
-          const current = yield* environment(catalog, input.env);
           const connection = yield* connectionIn(current, input.connection);
           if (Object.values(current.databases).some((item) => item.connection === input.connection))
             return yield* Effect.fail(error("ConnectionInUse"));
           const connections = { ...current.connections };
           delete connections[input.connection];
           obsolete = connection.secretRef;
-          return replaceEnvironment(catalog, input.env, { ...current, connections });
+          return { ...current, connections };
         })
       );
       return { env: input.env, connection: input.connection };
@@ -289,22 +279,21 @@ export async function rotateConnection(
     }
     const saved = await run(
       secrets.withStored(uri, (reference) =>
-        updateCatalog(directory, (catalog) =>
+        updateEnvironment(directory, input.env, (current) =>
           Effect.gen(function* () {
-            const current = yield* environment(catalog, input.env);
             const connection = yield* connectionIn(current, input.connection);
             if (
               connection.provider !== expected.provider ||
               connection.secretRef !== expected.secretRef
             )
               return yield* Effect.fail(error("ConnectionChanged"));
-            return replaceEnvironment(catalog, input.env, {
+            return {
               ...current,
               connections: {
                 ...current.connections,
                 [input.connection]: { ...connection, secretRef: reference },
               },
-            });
+            };
           })
         ).pipe(Effect.map(() => ({ env: input.env, connection: input.connection })))
       )

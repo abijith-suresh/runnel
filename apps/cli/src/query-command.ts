@@ -39,16 +39,18 @@ export async function buildQueryRequest(
       "InputInvalid",
       "Use --format ejson or --format json. EJSON preserves BSON numeric types."
     );
-  if (["find", "export", "aggregate"].includes(command) && values.limit !== undefined) {
-    const limit = integer(values.limit, "limit");
-    if (limit < 1 || limit > 1000)
-      throw new QueryError("InputInvalid", "Use --limit with an integer from 1 to 1000.");
-  }
-  if (["find", "export"].includes(command) && values.skip !== undefined) {
-    const skip = integer(values.skip, "skip");
-    if (skip < 0 || skip > 2147483647)
-      throw new QueryError("InputInvalid", "Use --skip with an integer from 0 to 2147483647.");
-  }
+  const limit =
+    ["find", "export", "aggregate"].includes(command) && values.limit !== undefined
+      ? integer(values.limit, "limit")
+      : undefined;
+  if (limit !== undefined && (limit < 1 || limit > 1000))
+    throw new QueryError("InputInvalid", "Use --limit with an integer from 1 to 1000.");
+  const skip =
+    ["find", "export"].includes(command) && values.skip !== undefined
+      ? integer(values.skip, "skip")
+      : undefined;
+  if (skip !== undefined && (skip < 0 || skip > 2147483647))
+    throw new QueryError("InputInvalid", "Use --skip with an integer from 0 to 2147483647.");
   const stems = ["filter", "projection", "sort", "pipeline"] as const;
   const stdinCount = stems.filter((key) => values[`${key}-file`] === "-").length;
   if (stdinCount > 1)
@@ -72,13 +74,8 @@ export async function buildQueryRequest(
     ...(values.env === undefined ? {} : { env: values.env }),
     ...(values.db === undefined ? {} : { db: values.db }),
     ...(values.format === undefined ? {} : { format: values.format }),
-    ...((command === "find" || command === "export" || command === "aggregate") &&
-    values.limit !== undefined
-      ? { limit: integer(values.limit) }
-      : {}),
-    ...((command === "find" || command === "export") && values.skip !== undefined
-      ? { skip: integer(values.skip) }
-      : {}),
+    ...(limit === undefined ? {} : { limit }),
+    ...(skip === undefined ? {} : { skip }),
   };
   // Check source-independent options before a file read or a potentially unbounded stdin wait.
   validateQueryRequest({ ...base, ...(command === "aggregate" ? { pipeline: "[]" } : {}) });
@@ -126,13 +123,11 @@ function validateQueryRequest(request: unknown): QueryOperation {
     );
   }
 }
-function integer(value: string, option?: string): number {
+function integer(value: string, option: "limit" | "skip"): number {
   if (!/^\d+$/.test(value))
     throw new QueryError(
       "InputInvalid",
-      option === undefined
-        ? "Limits and offsets must be decimal integers in the supported range."
-        : `Use --${option} with a nonnegative decimal integer in its supported range.`
+      `Use --${option} with a nonnegative decimal integer in its supported range.`
     );
   return Number(value);
 }

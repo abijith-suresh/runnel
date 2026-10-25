@@ -209,16 +209,15 @@ export function workerOperations(
       // one operation so a later connect cannot retire an already acquired handle.
       const database = operationDatabase();
       try {
-        let decoded: WorkerOperation;
+        let request: WorkerOperation;
         try {
-          decoded = decodeOperation(input);
+          request = decodeOperation(input);
         } catch {
           return failure(
             "RequestInvalid",
             "The operation request is invalid or exceeds the IPC size limit."
           );
         }
-        const request = decoded;
         if (request.operation === "inspect") {
           // Human setup discovery uses an isolated client and retains no unregistered URI.
           const temporary = createMongoPool();
@@ -237,23 +236,23 @@ export function workerOperations(
             await temporary.close();
           }
         }
-        const scriptArgs = request.operation === "run" ? prepareScript(request) : undefined;
-        const prepared =
-          request.operation === "list" || request.operation === "run"
-            ? undefined
-            : prepareQuery(request);
-        if (request.operation === "run")
+        if (request.operation === "run") {
+          const args = prepareScript(request);
           return boundedResult(
             await scripts.execute(
               request,
               () => database(request),
               async (target) => (await database(target)).handle,
-              scriptArgs === undefined ? {} : scriptArgs
+              args
             )
           );
+        }
+        if (request.operation !== "list") {
+          const prepared = prepareQuery(request);
+          const { env, db, handle } = await database(request);
+          return boundedResult(await executeQuery(handle, request, env, db, prepared));
+        }
         const { env, db, handle } = await database(request);
-        if (request.operation !== "list")
-          return boundedResult(await executeQuery(handle, request, env, db, prepared ?? {}));
         const cursor = handle.listCollections(
           {},
           { nameOnly: true, authorizedCollections: true, timeoutMS: 10000 }

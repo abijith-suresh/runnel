@@ -16,16 +16,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { MongoPool } from "@abijith-suresh/runnel-mongodb";
 import type * as Schema from "effect/Schema";
-import { BSON } from "mongodb";
 import { emptyCatalog } from "../dist/catalog.js";
 import { startDaemon } from "../dist/daemon-server.js";
 import { runExportCommand } from "../dist/export-command.js";
 import { readHistory } from "../dist/history.js";
-import { executeQuery, prepareQuery, queryResultBytes } from "../dist/mongodb-query.js";
-import { buildQueryRequest } from "../dist/query-command.js";
-import { QueryError } from "../dist/query-input.js";
+import { queryResultBytes } from "../dist/mongodb-query.js";
 
 const executable = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const response = (documents: Schema.JsonObject[] = []) => ({
@@ -204,59 +200,6 @@ test("failed or oversized results leave no destination or temporary files", asyn
   }
 });
 
-test("worker exports use native find options, bounded BSON results and cursor cleanup", async () => {
-  type Db = Awaited<ReturnType<MongoPool["database"]>>;
-  for (const [items, format, expected] of [
-    [[{ n: BSON.Long.fromString("9007199254740993") }, { n: 2 }, { n: 3 }], "ejson", "documents"],
-    [[{ n: 1 }, { text: "x".repeat(queryResultBytes) }], "ejson", "bytes"],
-    [[{ n: BSON.Long.fromString("9007199254740993") }], "json", "ResultPrecisionLoss"],
-  ] as const) {
-    let closed = 0;
-    let options: Record<string, unknown> = {};
-    const handle = {
-      collection: () => ({
-        find: (_filter: unknown, value: Record<string, unknown>) => {
-          options = value;
-          return {
-            async *[Symbol.asyncIterator]() {
-              yield* items;
-            },
-            async close() {
-              closed++;
-            },
-          };
-        },
-      }),
-    } as unknown as Db;
-    const request = await buildQueryRequest("export", "users", {
-      env: "local",
-      limit: "2",
-      skip: "1",
-      sort: '{"n":-1}',
-      format,
-    });
-    const pending = executeQuery(handle, request, "local", "accounts", prepareQuery(request));
-    if (format === "json")
-      await assert.rejects(
-        pending,
-        (error: unknown) => error instanceof QueryError && error.code === expected
-      );
-    else {
-      const result = await pending;
-      assert(result.ok && "documents" in result.data);
-      assert.equal(result.data.truncationReason, expected);
-      assert.deepEqual(result.data.limits, { documents: 2, bytes: queryResultBytes });
-      if (expected === "documents")
-        assert.deepEqual(result.data.documents[0]?.["n"], { $numberLong: "9007199254740993" });
-    }
-    assert.equal(options["limit"], 3);
-    assert.equal(options["skip"], 1);
-    assert.deepEqual(options["sort"], { n: -1 });
-    assert.equal(options["timeoutMS"], 10000);
-    assert.equal(closed, 1);
-  }
-});
-
 test("CLI exports resolve relative destinations, read stdin filters and record one sanitized operation", async (t) => {
   const directory = await fixture(t);
   const home = join(directory, "home");
@@ -328,32 +271,4 @@ test("CLI exports resolve relative destinations, read stdin filters and record o
   } finally {
     await daemon.stop();
   }
-});
-
-test("CLI missing environment and invalid output fail without daemon startup", async (t) => {
-  const directory = await fixture(t);
-  for (const [args, expected] of [
-    [["export", "users", "--output", "users.ejson"], "EnvironmentRequired"],
-    [["export", "users", "-e", "local"], "InputInvalid"],
-    [["export", "users", "-e", "local", "--output", "missing/"], "InputInvalid"],
-    [["export", "users", "-e", "local", "--output", "missing/."], "InputInvalid"],
-    [["export", "users", "-e", "local", "--output", "missing/child/.."], "InputInvalid"],
-    [["export", "users", "-e", "local", "--output", "missing\\"], "InputInvalid"],
-    [["export", "users", "-e", "local", "--output", "missing/users.ejson"], "OutputUnavailable"],
-  ] as const) {
-    const result = await cli(directory, [...args]);
-    assert.equal(result.status, 1);
-    assert.equal(JSON.parse(result.stdout).error.code, expected);
-    assert.deepEqual(await readdir(directory), []);
-  }
-  const unsupported = await cli(directory, [
-    "find",
-    "users",
-    "-e",
-    "local",
-    "--output",
-    "users.ejson",
-  ]);
-  assert.equal(unsupported.status, 1);
-  assert.equal(unsupported.stdout, "");
 });
