@@ -488,3 +488,29 @@ test("blocked stdin reads can be interrupted without dispatching a script", asyn
     await f.cleanup();
   }
 });
+
+test("supported script defaults apply to new submissions and explicit timeout overrides remain authoritative", async () => {
+  const Effect = await import("effect/Effect");
+  const { setSettings } = await import("../dist/settings.js");
+  const f = await fixture(2000);
+  const daemon = await startDaemon(f.directory, { workerEntrypoint });
+  try {
+    const path = join(f.directory, "settings-deadline.mjs");
+    await writeFile(
+      path,
+      "export default async () => { await new Promise(resolve => setTimeout(resolve, 100)); return true; };\n"
+    );
+    assert((await runScriptCommand(f.directory, path, { env: "local" })).ok);
+    await Effect.runPromise(setSettings(f.directory, { scriptTimeoutMs: 10 }));
+    assert.equal(
+      code(await runScriptCommand(f.directory, path, { env: "local" })),
+      "ScriptTimedOut"
+    );
+    assert((await runScriptCommand(f.directory, path, { env: "local", timeout: "2s" })).ok);
+    await Effect.runPromise(setSettings(f.directory, { scriptTimeoutMs: 0 }));
+    assert((await runScriptCommand(f.directory, path, { env: "local" })).ok);
+  } finally {
+    await daemon.stop();
+    await f.cleanup();
+  }
+});

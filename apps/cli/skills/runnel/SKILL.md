@@ -239,6 +239,24 @@ an existing connection. Additional connections use `setup --env NAME --connectio
 LABEL`, optionally with `--default`. A human can replace an existing connection's
 credentials with `connection rotate LABEL -e NAME`.
 
+`runnel config` shows redacted configuration without URIs, secret references or
+credential-availability checks. `runnel settings` reads effective values, bounds
+and application timing. `runnel settings set --idle-timeout-ms 300000
+--script-timeout-ms 60000 --history-enabled false` updates selected fields offline
+under the catalog lock. Supply one or more supported fields; durations are whole
+milliseconds and booleans are exactly `true` or `false`. Defaults are five minutes
+for both timeouts and history enabled. Zero disables the respective timeout.
+Idle settings apply at the next daemon start, script defaults to the next request
+without `--timeout`, and history settings to new submissions. Settings writes do
+not restart services or interrupt active work; existing history remains.
+
+`runnel connection test NAME -e ENV` explicitly pings a registered connection in
+the worker without listing databases. `runnel connection databases NAME -e ENV`
+explicitly lists authorized databases, capped at 1000 with truncation. Listing
+permission may be denied even when known database operations work. These checks
+are bounded and never expose stored credentials. Config/settings/status reads do
+not start database work, check the vault or keep an idle worker alive.
+
 Manage catalog mappings with these commands when the task requires it:
 
 ```sh

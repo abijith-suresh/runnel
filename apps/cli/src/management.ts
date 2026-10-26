@@ -247,87 +247,149 @@ export async function defaultConnection(
           return { ...current, defaultConnection: input.connection };
         })
       );
-      return input;
+      return { env: input.env, connection: input.connection };
     })
   );
 }
 
 type Inspection = { readonly ok: true } | { readonly ok: false; readonly error: ManagementError };
+type RotationDependencies = {
+  readonly secrets?: Secrets;
+  readonly inspect?: (uri: string, signal?: AbortSignal) => Promise<Inspection>;
+  readonly signal?: AbortSignal;
+};
 
-/** Read credentials only through the hidden prompt; snapshot before any interactive work. */
-export async function rotateConnection(
-  directory: string,
-  input: ConnectionTarget,
-  suppliedPrompt?: SetupPrompt,
-  dependencies: {
-    readonly secrets?: Secrets;
-    readonly inspect?: (uri: string, signal?: AbortSignal) => Promise<Inspection>;
-  } = {}
-): Promise<ManagementResult<ConnectionTarget>> {
-  if (![input.env, input.connection].every(isCatalogName))
-    return { ok: false, error: error("ManagementInvalid") };
-  const loaded = await run(
+function connectionSnapshot(directory: string, input: ConnectionTarget) {
+  return run(
     Effect.gen(function* () {
+      if (![input.env, input.connection].every(isCatalogName))
+        return yield* Effect.fail(error("ManagementInvalid"));
       const catalog = yield* readCatalog(directory);
       return yield* connectionIn(yield* environment(catalog, input.env), input.connection);
     })
   );
-  if (!loaded.ok) return loaded;
-  const expected = loaded.data;
+}
+const cancelledRotation = (): ManagementResult<ConnectionTarget> => ({
+  ok: false,
+  error: {
+    code: "OperationCancelled",
+    message: "Connection rotation cancelled before the catalog change.",
+  },
+});
+
+async function replaceCredential(
+  directory: string,
+  input: ConnectionTarget,
+  uri: string,
+  expected: Environment["connections"][string],
+  dependencies: RotationDependencies
+): Promise<ManagementResult<ConnectionTarget>> {
+  if (dependencies.signal?.aborted) return cancelledRotation();
+  if (!uri || Buffer.byteLength(uri, "utf8") > 16384)
+    return { ok: false, error: error("SecretInvalid") };
+  const parsed = await run(connectionDatabase(uri));
+  if (!parsed.ok) return parsed;
+  const inspected = await (dependencies.inspect
+    ? dependencies.inspect(uri, dependencies.signal)
+    : executeWithDaemon(
+        directory,
+        { operation: "inspect", uri, testOnly: true },
+        dependencies.signal
+      ));
+  if (dependencies.signal?.aborted) return cancelledRotation();
+  if (!inspected.ok && inspected.error.code !== "PermissionDenied") {
+    const code = inspected.error.code;
+    return {
+      ok: false,
+      error: error(
+        code === "AuthenticationFailed" ||
+          code === "ConnectionInvalid" ||
+          code === "DatabaseUnavailable" ||
+          code === "DatabaseTimedOut"
+          ? code
+          : "InspectionFailed"
+      ),
+    };
+  }
   const secrets = dependencies.secrets ?? credentialStore();
+  const saved = await run(
+    secrets.withStored(uri, (reference) =>
+      updateEnvironment(directory, input.env, (current) =>
+        Effect.gen(function* () {
+          const connection = yield* connectionIn(current, input.connection);
+          if (JSON.stringify(connection) !== JSON.stringify(expected))
+            return yield* Effect.fail(error("ConnectionChanged"));
+          return {
+            ...current,
+            connections: {
+              ...current.connections,
+              [input.connection]: {
+                provider: connection.provider,
+                secretRef: reference,
+                ...(parsed.data === undefined ? {} : { defaultDatabase: parsed.data }),
+              },
+            },
+          };
+        })
+      ).pipe(Effect.map(() => ({ env: input.env, connection: input.connection })))
+    )
+  );
+  if (!saved.ok) return saved;
+  // Once committed, cleanup cannot turn success into an apparent safe-to-retry failure.
+  const warning = await cleanObsoleteSecret(directory, expected.secretRef, secrets);
+  return warning ? { ...saved, warning } : saved;
+}
+
+/** Shared human credential replacement operation. No prompt or raw catalog result. */
+export async function replaceConnectionCredential(
+  directory: string,
+  input: ConnectionTarget & { readonly uri: string },
+  dependencies: RotationDependencies = {}
+): Promise<ManagementResult<ConnectionTarget>> {
+  if (dependencies.signal?.aborted) return cancelledRotation();
+  const loaded = await connectionSnapshot(directory, input);
+  if (!loaded.ok) return loaded;
+  try {
+    return await replaceCredential(
+      directory,
+      { env: input.env, connection: input.connection },
+      input.uri,
+      loaded.data,
+      dependencies
+    );
+  } catch {
+    return dependencies.signal?.aborted
+      ? cancelledRotation()
+      : { ok: false, error: error("ManagementUnavailable") };
+  }
+}
+
+/** Terminal adapter pins the same snapshot before asking for the replacement URI. */
+export async function rotateConnection(
+  directory: string,
+  input: ConnectionTarget,
+  suppliedPrompt?: SetupPrompt,
+  dependencies: RotationDependencies = {}
+): Promise<ManagementResult<ConnectionTarget>> {
+  const loaded = await connectionSnapshot(directory, input);
+  if (!loaded.ok) return loaded;
   try {
     const prompt = suppliedPrompt ?? terminalPrompt();
     prompt.write(`Rotate connection ${input.connection} in environment ${input.env}.\n`);
     const uri = await prompt.ask("Replacement MongoDB connection URI (hidden)", { hidden: true });
-    if (!uri || Buffer.byteLength(uri, "utf8") > 16384)
-      return { ok: false, error: error("SecretInvalid") };
-    const parsed = await run(connectionDatabase(uri));
-    if (!parsed.ok) return parsed;
-    const inspected = await prompt.progress<Inspection>("Checking connection…", (signal) =>
-      dependencies.inspect
-        ? dependencies.inspect(uri, signal)
-        : executeWithDaemon(directory, { operation: "inspect", uri, testOnly: true }, signal)
-    );
-    if (!inspected.ok && inspected.error.code !== "PermissionDenied") {
-      const code = inspected.error.code;
-      return {
-        ok: false,
-        error: error(
-          code === "AuthenticationFailed" ||
-            code === "ConnectionInvalid" ||
-            code === "DatabaseUnavailable" ||
-            code === "DatabaseTimedOut"
-            ? code
-            : "InspectionFailed"
+    return await replaceCredential(directory, input, uri, loaded.data, {
+      ...dependencies,
+      inspect: (value) =>
+        prompt.progress<Inspection>("Checking connection…", (signal) =>
+          dependencies.inspect
+            ? dependencies.inspect(value, signal)
+            : executeWithDaemon(
+                directory,
+                { operation: "inspect", uri: value, testOnly: true },
+                signal
+              )
         ),
-      };
-    }
-    const saved = await run(
-      secrets.withStored(uri, (reference) =>
-        updateEnvironment(directory, input.env, (current) =>
-          Effect.gen(function* () {
-            const connection = yield* connectionIn(current, input.connection);
-            if (JSON.stringify(connection) !== JSON.stringify(expected))
-              return yield* Effect.fail(error("ConnectionChanged"));
-            return {
-              ...current,
-              connections: {
-                ...current.connections,
-                [input.connection]: {
-                  provider: connection.provider,
-                  secretRef: reference,
-                  ...(parsed.data === undefined ? {} : { defaultDatabase: parsed.data }),
-                },
-              },
-            };
-          })
-        ).pipe(Effect.map(() => ({ env: input.env, connection: input.connection })))
-      )
-    );
-    if (!saved.ok) return saved;
-    // This runs after withStored succeeds. Cleanup must never roll back the live new secret.
-    const warning = await cleanObsoleteSecret(directory, expected.secretRef, secrets);
-    return warning ? { ...saved, warning } : saved;
+    });
   } catch (cause) {
     if (cause instanceof PromptError)
       return {
@@ -343,5 +405,42 @@ export async function rotateConnection(
         },
       };
     return { ok: false, error: error("ManagementUnavailable") };
+  }
+}
+
+/** Explicit registered-connection access. Requests contain names, never a stored URI/reference. */
+export async function inspectConnection(
+  directory: string,
+  input: ConnectionTarget,
+  discover = false,
+  signal?: AbortSignal,
+  execute = executeWithDaemon
+): Promise<
+  ManagementResult<{ readonly databases: readonly string[]; readonly truncated: boolean }>
+> {
+  if (signal?.aborted)
+    return {
+      ok: false,
+      error: { code: "OperationCancelled", message: "Connection inspection cancelled." },
+    };
+  const loaded = await connectionSnapshot(directory, input);
+  if (!loaded.ok) return loaded;
+  try {
+    const result = await execute(
+      directory,
+      {
+        operation: "inspectConnection",
+        env: input.env,
+        connection: input.connection,
+        ...(discover ? {} : { testOnly: true }),
+      },
+      signal
+    );
+    if (!result.ok) return result;
+    return "databases" in result.data
+      ? { ok: true, data: { databases: result.data.databases, truncated: result.data.truncated } }
+      : { ok: false, error: error("InspectionFailed") };
+  } catch {
+    return { ok: false, error: error("InspectionFailed") };
   }
 }

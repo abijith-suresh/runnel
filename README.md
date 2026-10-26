@@ -83,7 +83,11 @@ unknown future versions also fail closed. After this upgrade, use a version 2
 compatible CLI. Stop the old daemon before switching installations. Downgrading
 the catalog in place is unsupported.
 
-Set `settings.historyEnabled` to `false` to disable history for new work.
+`runnel config` returns redacted connection/alias metadata and effective settings,
+without credentials or secret references. `runnel settings` reads settings;
+`runnel settings set` updates validated timeouts/history under the catalog lock.
+These reads/writes are offline and never start database work. See the
+[settings behavior](apps/cli/README.md#settings) for bounds and application timing.
 A detached local daemon starts on the first database operation and supervises
 one worker with warm connection pools; five minutes of
 inactivity shuts it down while active or queued work prevents it. Operation

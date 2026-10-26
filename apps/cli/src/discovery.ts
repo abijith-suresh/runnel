@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { type CatalogError, readCatalog } from "./catalog.js";
+import { type Catalog, type CatalogError, readCatalog } from "./catalog.js";
 
 export type DiscoveryCommand = "envs" | "connections" | "databases";
 export type DiscoveryError =
@@ -8,6 +8,33 @@ export type DiscoveryError =
       readonly code: "EnvironmentRequired" | "EnvironmentNotFound";
       readonly message: string;
     };
+
+type Environment = Catalog["environments"][string];
+
+export function describeConnections(selected: Environment) {
+  return Object.keys(selected.connections)
+    .sort()
+    .map((name) => ({
+      name,
+      provider: selected.connections[name]?.provider,
+      ...(selected.defaultConnection === name ? { default: true } : {}),
+      ...(selected.connections[name]?.defaultDatabase === undefined
+        ? {}
+        : {
+            defaultDatabase: selected.connections[name]?.defaultDatabase,
+          }),
+    }));
+}
+
+export function describeDatabases(selected: Environment) {
+  return Object.keys(selected.databases)
+    .sort()
+    .map((name) => ({
+      name,
+      connection: selected.databases[name]?.connection,
+      database: selected.databases[name]?.database,
+    }));
+}
 
 export function discover(
   directory: string,
@@ -45,18 +72,7 @@ export function discover(
       });
     if (command === "connections")
       return {
-        connections: Object.keys(selected.connections)
-          .sort()
-          .map((name) => ({
-            name,
-            provider: selected.connections[name]?.provider,
-            ...(selected.defaultConnection === name ? { default: true } : {}),
-            ...(selected.connections[name]?.defaultDatabase === undefined
-              ? {}
-              : {
-                  defaultDatabase: selected.connections[name]?.defaultDatabase,
-                }),
-          })),
+        connections: describeConnections(selected),
       };
     return {
       ...(selected.defaultConnection === undefined
@@ -71,9 +87,7 @@ export function discover(
                     selected.connections[selected.defaultConnection]?.defaultDatabase,
                 }),
           }),
-      databases: Object.keys(selected.databases)
-        .sort()
-        .map((name) => ({ name, ...selected.databases[name] })),
+      databases: describeDatabases(selected),
     };
   });
 }

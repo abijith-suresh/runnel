@@ -95,6 +95,45 @@ not silently become empty. Setup and management commands update it atomically;
 it stores OS secret references, never credentials.
 See [the architecture section](../../README.md#architecture) for its schema.
 
+## Settings
+
+`runnel config` returns effective settings and whitelisted environment, connection,
+default-database and optional-alias metadata. It omits stored URIs and secret
+references. It does not test credential availability. `runnel settings` and
+`runnel settings get` return settings, supported numeric limits and application
+timing. Reads do not create a missing catalog or start/connect to a daemon.
+
+```sh
+runnel config
+runnel settings
+runnel settings set --idle-timeout-ms 300000 --script-timeout-ms 60000
+runnel settings set --history-enabled false
+```
+
+Supply at least one field to `settings set`. Milliseconds must be decimal
+integers, and history must be exactly `true` or `false`. Unknown fields, fractions,
+negative values and values outside the supported bounds fail without a partial
+write. Unspecified fields, aliases and credentials stay intact. Writes use the
+existing catalog lock and v1-to-v2 migration; they never read the vault or contact
+MongoDB. Defaults remain 300000 ms for both timeouts and enabled history.
+
+| Setting | Supported values | Takes effect |
+| --- | --- | --- |
+| `idleTimeoutMs` | 0 to 2147483647 ms; 0 disables idle expiry | Next daemon start; an existing daemon retains its startup value |
+| `scriptTimeoutMs` | 0 to 2147483547 ms; 0 disables the active deadline | Next script submission without an explicit `--timeout`; already queued/active requests retain their deadline |
+| `historyEnabled` | Boolean | Newly submitted operations; existing entries remain |
+
+Stop a daemon explicitly with `runnel daemon stop` when a new idle timeout needs
+to take effect before its normal idle exit. Settings/config/status inspection
+never resets the idle timer or keeps pools alive. Settings writes do not stop or
+restart an existing daemon and do not interrupt current work.
+
+The CLI and a future human UI use these same validated application operations
+inside the installed package. Ordinary registration and credential replacement
+also have prompt-independent operations with redacted results. Terminal rotation
+uses the same replacement transaction and pins its connection snapshot before
+asking for input. No HTTP server or browser query/script editor is included.
+
 ## Registering a connection
 
 Run `runnel setup --env local` in an interactive terminal and enter the URI at
@@ -139,6 +178,22 @@ aliases first visited by a later `connect()`.
 Catalog edits become visible on the next operation. A concurrent mapping change
 during credential recovery can return `TargetChanged`; inspect possible writes
 before starting another operation. Runnel never replays database work.
+
+Explicit connection checks use the registered target by name. They need no alias
+and never return the stored URI or secret reference:
+
+```sh
+runnel connection test primary -e local
+runnel connection databases primary -e local
+```
+
+`test` uses a bounded ping without enumerating databases. `databases` explicitly
+requests authorized database names, capped at 1000 with `truncated`. A user can
+have database access while listing returns `PermissionDenied`; this does not
+invalidate the saved registration. Both calls run in the worker with existing
+connection pools, target snapshots and bounded credential refresh, without replay.
+Each driver operation has a 10-second deadline and the supervisor's 15-second
+active deadline. Configuration/status commands perform neither check.
 
 Aliases can be managed without accessing MongoDB or credentials:
 
@@ -286,7 +341,7 @@ queue waiting. Physical target names and URI database defaults are omitted unles
 they identify a configured alias. It omits collection names, filters, arguments, scripts, returned
 documents, credentials, physical database names, and driver error messages.
 
-Set `settings.historyEnabled` to `false` in `catalog.json` to disable recording
+Use `runnel settings set --history-enabled false` to disable recording
 for newly submitted operations. An absent setting means enabled. Existing entries
 remain available. Setup discovery, lifecycle commands, offline discovery, and
 requests rejected before submission do not add entries.

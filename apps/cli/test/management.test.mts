@@ -611,3 +611,81 @@ test("rotation updates or clears URI database metadata and preserves default sel
     assert.equal(env?.connections[connectionName]?.defaultDatabase, database);
   }
 });
+
+test("shared registration and credential replacement return only redacted results and preserve metadata", async (t) => {
+  const { registerEnvironment } = await import("../dist/setup.js");
+  const { replaceConnectionCredential } = await import("../dist/management.js");
+  const f = fixture(t);
+  const registered = await Effect.runPromise(
+    registerEnvironment(f.directory, { env: "local", uri: original }, f.secrets)
+  );
+  assert.deepEqual(registered, { env: "local", connection: "primary", databases: [] });
+  const result = await replaceConnectionCredential(
+    f.directory,
+    { ...target, uri: replacement },
+    {
+      secrets: f.secrets,
+      inspect,
+    }
+  );
+  assert.deepEqual(result, { ok: true, data: target });
+  assert.doesNotMatch(JSON.stringify(result), /private-value|keyring|secretRef|mongodb:/);
+  assert.equal((await f.catalog()).environments[envName]?.defaultConnection, "primary");
+  assert.equal(f.stored.size, 1);
+  assert.deepEqual([...f.stored.values()], [replacement]);
+});
+
+test("shared credential replacement observes cancellation before storing a secret", async (t) => {
+  const { replaceConnectionCredential } = await import("../dist/management.js");
+  const f = fixture(t);
+  await f.seed();
+  const before = f.text();
+  const controller = new AbortController();
+  const result = await replaceConnectionCredential(
+    f.directory,
+    { ...target, uri: replacement },
+    {
+      secrets: f.secrets,
+      signal: controller.signal,
+      inspect: async (_uri, signal) => {
+        assert.equal(signal, controller.signal);
+        controller.abort();
+        return { ok: true };
+      },
+    }
+  );
+  failure(result, "OperationCancelled");
+  assert.equal(f.text(), before);
+  assert.deepEqual([...f.stored.values()], [original]);
+});
+
+test("registered inspection passes names only and does not start work for unknown connections", async (t) => {
+  const { inspectConnection } = await import("../dist/management.js");
+  const f = fixture(t);
+  await f.seed();
+  let requests = 0;
+  const execute: typeof import("../dist/daemon-client.js").executeWithDaemon = async (
+    _directory,
+    input
+  ) => {
+    requests++;
+    assert.deepEqual(input, { operation: "inspectConnection", ...target, testOnly: true });
+    return { ok: true, data: { databases: [], truncated: false } };
+  };
+  assert.deepEqual(await inspectConnection(f.directory, target, false, undefined, execute), {
+    ok: true,
+    data: { databases: [], truncated: false },
+  });
+  failure(
+    await inspectConnection(
+      f.directory,
+      { ...target, connection: "missing" },
+      false,
+      undefined,
+      execute
+    ),
+    "ConnectionNotFound"
+  );
+  assert.equal(requests, 1);
+  assert.equal(f.writes(), 1);
+});

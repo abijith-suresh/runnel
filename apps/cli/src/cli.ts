@@ -19,10 +19,12 @@ Usage:
   runnel ${guideUsage}
   runnel skill [print | path]
   runnel setup [--env <environment>] [--test]
+  runnel config
+  runnel settings [get | set --idle-timeout-ms <n> --script-timeout-ms <n> --history-enabled true|false]
   runnel envs
   runnel connections -e <environment>
   runnel databases -e <environment>
-  runnel connection rotate | remove | default <name> -e <environment>
+  runnel connection rotate | remove | default | test | databases <name> -e <environment>
   runnel database add <alias> -e <environment> --connection <name> --database <physical-name>
   runnel database rename <alias> -e <environment> --to <new-alias>
   runnel database remove <alias> -e <environment>
@@ -87,6 +89,12 @@ const optionHelp = {
   test: "--test                     Test connectivity with a bounded ping before saving",
   database: "--database <physical-name> Physical MongoDB database name; access is not checked",
   to: "--to <new-alias>           New alias for rename",
+  "idle-timeout-ms":
+    "--idle-timeout-ms <n>      Integer milliseconds 0-2147483647; 0 disables idle expiry",
+  "script-timeout-ms":
+    "--script-timeout-ms <n>    Integer milliseconds 0-2147483547; 0 disables the deadline",
+  "history-enabled":
+    "--history-enabled true|false  Enable or disable history for newly submitted work",
 } as const;
 type Option = keyof typeof optionHelp;
 type CommandDefinition = {
@@ -122,13 +130,21 @@ const commands: Record<string, CommandDefinition> = {
     usage: "setup [--env <environment>] [--connection <name>] [--default] [--test]",
     options: ["env", "connection", "default", "test"],
   },
+  config: { usage: "config" },
+  settings: {
+    usage:
+      "settings [get | set --idle-timeout-ms <n> --script-timeout-ms <n> --history-enabled true|false]",
+    actions: ["get", "set"],
+    defaultAction: true,
+    actionOptions: { set: ["idle-timeout-ms", "script-timeout-ms", "history-enabled"] },
+  },
   envs: { usage: "envs" },
   connections: { usage: "connections -e <environment>", options: ["env"] },
   databases: { usage: "databases -e <environment>", options: ["env"] },
   connection: {
-    usage: "connection rotate | remove | default <name> -e <environment>",
+    usage: "connection rotate | remove | default | test | databases <name> -e <environment>",
     options: ["env"],
-    actions: ["rotate", "remove", "default"],
+    actions: ["rotate", "remove", "default", "test", "databases"],
     operand: "connection name",
   },
   database: {
@@ -222,11 +238,19 @@ function commandHelp(command: string, definition: CommandDefinition, action?: st
       "rotate                     Hidden interactive URI replacement; preserves aliases",
       "remove                     Remove an unused registration and its stored credential",
       "default                    Select the default connection for physical database names",
+      "test                       Explicit bounded ping using the registered connection",
+      "databases                  Explicit bounded discovery; listing permission may be denied",
       "Remove database aliases before connection removal. These commands do not drop MongoDB data."
     );
   if (command === "database")
     options.push(
       "Only catalog aliases change. MongoDB databases and collections are not modified."
+    );
+  if (command === "settings")
+    options.push(
+      "Settings are read/written offline. Supply at least one setting for set.",
+      "Idle changes apply at next daemon start; script defaults to the next run without --timeout.",
+      "History changes apply to new submissions. Existing history and active work remain intact."
     );
   const details =
     command === "run"
@@ -294,6 +318,9 @@ async function main(): Promise<number> {
       to?: string;
       default?: boolean;
       test?: boolean;
+      "idle-timeout-ms"?: string;
+      "script-timeout-ms"?: string;
+      "history-enabled"?: string;
     };
   const wantsHelp = helpCommand || values.help;
   const choices = definition?.actions;
@@ -344,6 +371,54 @@ async function main(): Promise<number> {
       return 1;
     }
   }
+  if (command === "settings" || command === "config") {
+    const [Effect, Result, { catalogDirectory }, settings] = await Promise.all([
+      import("effect/Effect"),
+      import("effect/Result"),
+      import("./catalog.js"),
+      import("./settings.js"),
+    ]);
+    const parsedSetting = (value: string | undefined): unknown =>
+      value === undefined ? undefined : /^\d+$/.test(value) ? Number(value) : value;
+    const history = values["history-enabled"];
+    const patch = {
+      ...(values["idle-timeout-ms"] === undefined
+        ? {}
+        : { idleTimeoutMs: parsedSetting(values["idle-timeout-ms"]) }),
+      ...(values["script-timeout-ms"] === undefined
+        ? {}
+        : { scriptTimeoutMs: parsedSetting(values["script-timeout-ms"]) }),
+      ...(history === undefined
+        ? {}
+        : { historyEnabled: history === "true" ? true : history === "false" ? false : history }),
+    };
+    const result = await Effect.runPromise(
+      Effect.try({
+        try: () => catalogDirectory(),
+        catch: () => ({
+          code: "CatalogInvalid",
+          message: "Runnel configuration paths must be absolute.",
+        }),
+      }).pipe(
+        Effect.flatMap((directory) =>
+          command === "config"
+            ? settings.getConfiguration(directory)
+            : positionals[1] === "set"
+              ? settings.setSettings(directory, patch)
+              : settings.getSettings(directory)
+        ),
+        Effect.result
+      )
+    );
+    process.stdout.write(
+      `${JSON.stringify(
+        Result.isFailure(result)
+          ? { ok: false, error: result.failure }
+          : { ok: true, data: result.success }
+      )}\n`
+    );
+    return Result.isFailure(result) ? 1 : 0;
+  }
   if (command === "connection" || command === "database") {
     const { catalogDirectory } = await import("./catalog.js");
     const management = await import("./management.js");
@@ -368,7 +443,13 @@ async function main(): Promise<number> {
               ? await management.rotateConnection(directory, input)
               : positionals[1] === "default"
                 ? await management.defaultConnection(directory, input)
-                : await management.removeConnection(directory, input);
+                : positionals[1] === "test" || positionals[1] === "databases"
+                  ? await management.inspectConnection(
+                      directory,
+                      input,
+                      positionals[1] === "databases"
+                    )
+                  : await management.removeConnection(directory, input);
         } else {
           const input = { env, alias: name };
           result =

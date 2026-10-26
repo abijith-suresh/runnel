@@ -33,6 +33,12 @@ const requestSchema = Schema.Union([
     testOnly: Schema.optionalKey(Schema.Literal(true)),
   }),
   Schema.Struct({
+    operation: Schema.Literal("inspectConnection"),
+    env: text,
+    connection: text,
+    testOnly: Schema.optionalKey(Schema.Literal(true)),
+  }),
+  Schema.Struct({
     operation: Schema.Literal("list"),
     ...target,
   }),
