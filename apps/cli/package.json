@@ -35,10 +35,11 @@
     "url": "https://github.com/abijith-suresh/runnel/issues"
   },
   "scripts": {
-    "build": "tsc --build",
-    "typecheck": "tsc --project tsconfig.typecheck.json && tsc --project tsconfig.test.json",
+    "build": "tsc --build && npm run build:ui",
+    "typecheck": "tsc --project tsconfig.typecheck.json && tsc --project tsconfig.test.json && tsc --project ui/tsconfig.json",
     "test": "npm run build && node --test --test-concurrency=1 test/*.test.mts",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "build:ui": "vite build --config ui/vite.config.ts"
   },
   "dependencies": {
     "@abijith-suresh/runnel-core": "0.0.7",

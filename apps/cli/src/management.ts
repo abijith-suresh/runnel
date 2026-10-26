@@ -63,14 +63,18 @@ function databaseIn(env: Environment, name: string) {
 function updateEnvironment<E>(
   directory: string,
   name: string,
-  update: (current: Environment) => Effect.Effect<Environment, E>
+  update: (current: Environment) => Effect.Effect<Environment, E>,
+  expectedRevision?: string
 ) {
-  return updateCatalog(directory, (catalog) =>
-    Effect.gen(function* () {
-      const current = yield* environment(catalog, name);
-      const next = yield* update(current);
-      return { ...catalog, environments: { ...catalog.environments, [name]: next } };
-    })
+  return updateCatalog(
+    directory,
+    (catalog) =>
+      Effect.gen(function* () {
+        const current = yield* environment(catalog, name);
+        const next = yield* update(current);
+        return { ...catalog, environments: { ...catalog.environments, [name]: next } };
+      }),
+    expectedRevision
   );
 }
 
@@ -123,7 +127,8 @@ async function cleanObsoleteSecret(
 
 export async function addDatabase(
   directory: string,
-  input: DatabaseTarget & { readonly connection: string; readonly database: string }
+  input: DatabaseTarget & { readonly connection: string; readonly database: string },
+  expectedRevision?: string
 ): Promise<ManagementResult<typeof input>> {
   return run(
     Effect.gen(function* () {
@@ -132,19 +137,23 @@ export async function addDatabase(
         !isDatabaseName(input.database)
       )
         return yield* Effect.fail(error("ManagementInvalid"));
-      yield* updateEnvironment(directory, input.env, (current) =>
-        Effect.gen(function* () {
-          yield* connectionIn(current, input.connection);
-          if (Object.hasOwn(current.databases, input.alias))
-            return yield* Effect.fail(error("DatabaseNameConflict"));
-          return {
-            ...current,
-            databases: {
-              ...current.databases,
-              [input.alias]: { connection: input.connection, database: input.database },
-            },
-          };
-        })
+      yield* updateEnvironment(
+        directory,
+        input.env,
+        (current) =>
+          Effect.gen(function* () {
+            yield* connectionIn(current, input.connection);
+            if (Object.hasOwn(current.databases, input.alias))
+              return yield* Effect.fail(error("DatabaseNameConflict"));
+            return {
+              ...current,
+              databases: {
+                ...current.databases,
+                [input.alias]: { connection: input.connection, database: input.database },
+              },
+            };
+          }),
+        expectedRevision
       );
       return {
         env: input.env,
@@ -158,22 +167,27 @@ export async function addDatabase(
 
 export async function renameDatabase(
   directory: string,
-  input: DatabaseTarget & { readonly to: string }
+  input: DatabaseTarget & { readonly to: string },
+  expectedRevision?: string
 ): Promise<ManagementResult<typeof input>> {
   return run(
     Effect.gen(function* () {
       if (![input.env, input.alias, input.to].every(isCatalogName))
         return yield* Effect.fail(error("ManagementInvalid"));
-      yield* updateEnvironment(directory, input.env, (current) =>
-        Effect.gen(function* () {
-          const alias = yield* databaseIn(current, input.alias);
-          if (Object.hasOwn(current.databases, input.to))
-            return yield* Effect.fail(error("DatabaseNameConflict"));
-          const databases = { ...current.databases };
-          delete databases[input.alias];
-          databases[input.to] = alias;
-          return { ...current, databases };
-        })
+      yield* updateEnvironment(
+        directory,
+        input.env,
+        (current) =>
+          Effect.gen(function* () {
+            const alias = yield* databaseIn(current, input.alias);
+            if (Object.hasOwn(current.databases, input.to))
+              return yield* Effect.fail(error("DatabaseNameConflict"));
+            const databases = { ...current.databases };
+            delete databases[input.alias];
+            databases[input.to] = alias;
+            return { ...current, databases };
+          }),
+        expectedRevision
       );
       return { env: input.env, alias: input.alias, to: input.to };
     })
@@ -182,19 +196,24 @@ export async function renameDatabase(
 
 export async function removeDatabase(
   directory: string,
-  input: DatabaseTarget
+  input: DatabaseTarget,
+  expectedRevision?: string
 ): Promise<ManagementResult<DatabaseTarget>> {
   return run(
     Effect.gen(function* () {
       if (![input.env, input.alias].every(isCatalogName))
         return yield* Effect.fail(error("ManagementInvalid"));
-      yield* updateEnvironment(directory, input.env, (current) =>
-        Effect.gen(function* () {
-          yield* databaseIn(current, input.alias);
-          const databases = { ...current.databases };
-          delete databases[input.alias];
-          return { ...current, databases };
-        })
+      yield* updateEnvironment(
+        directory,
+        input.env,
+        (current) =>
+          Effect.gen(function* () {
+            yield* databaseIn(current, input.alias);
+            const databases = { ...current.databases };
+            delete databases[input.alias];
+            return { ...current, databases };
+          }),
+        expectedRevision
       );
       return { env: input.env, alias: input.alias };
     })
@@ -204,25 +223,32 @@ export async function removeDatabase(
 export async function removeConnection(
   directory: string,
   input: ConnectionTarget,
-  secrets: Secrets = credentialStore()
+  secrets: Secrets = credentialStore(),
+  expectedRevision?: string
 ): Promise<ManagementResult<ConnectionTarget>> {
   let obsolete: string | undefined;
   const result = await run(
     Effect.gen(function* () {
       if (![input.env, input.connection].every(isCatalogName))
         return yield* Effect.fail(error("ManagementInvalid"));
-      yield* updateEnvironment(directory, input.env, (current) =>
-        Effect.gen(function* () {
-          const connection = yield* connectionIn(current, input.connection);
-          if (Object.values(current.databases).some((item) => item.connection === input.connection))
-            return yield* Effect.fail(error("ConnectionInUse"));
-          const connections = { ...current.connections };
-          delete connections[input.connection];
-          obsolete = connection.secretRef;
-          const next = { ...current, connections };
-          if (next.defaultConnection === input.connection) delete next.defaultConnection;
-          return next;
-        })
+      yield* updateEnvironment(
+        directory,
+        input.env,
+        (current) =>
+          Effect.gen(function* () {
+            const connection = yield* connectionIn(current, input.connection);
+            if (
+              Object.values(current.databases).some((item) => item.connection === input.connection)
+            )
+              return yield* Effect.fail(error("ConnectionInUse"));
+            const connections = { ...current.connections };
+            delete connections[input.connection];
+            obsolete = connection.secretRef;
+            const next = { ...current, connections };
+            if (next.defaultConnection === input.connection) delete next.defaultConnection;
+            return next;
+          }),
+        expectedRevision
       );
       return { env: input.env, connection: input.connection };
     })
@@ -235,17 +261,22 @@ export async function removeConnection(
 /** Changes target selection only; credentials and physical databases are untouched. */
 export async function defaultConnection(
   directory: string,
-  input: ConnectionTarget
+  input: ConnectionTarget,
+  expectedRevision?: string
 ): Promise<ManagementResult<ConnectionTarget>> {
   return run(
     Effect.gen(function* () {
       if (![input.env, input.connection].every(isCatalogName))
         return yield* Effect.fail(error("ManagementInvalid"));
-      yield* updateEnvironment(directory, input.env, (current) =>
-        Effect.gen(function* () {
-          yield* connectionIn(current, input.connection);
-          return { ...current, defaultConnection: input.connection };
-        })
+      yield* updateEnvironment(
+        directory,
+        input.env,
+        (current) =>
+          Effect.gen(function* () {
+            yield* connectionIn(current, input.connection);
+            return { ...current, defaultConnection: input.connection };
+          }),
+        expectedRevision
       );
       return { env: input.env, connection: input.connection };
     })
@@ -257,6 +288,7 @@ type RotationDependencies = {
   readonly secrets?: Secrets;
   readonly inspect?: (uri: string, signal?: AbortSignal) => Promise<Inspection>;
   readonly signal?: AbortSignal;
+  readonly expectedRevision?: string;
 };
 
 function connectionSnapshot(directory: string, input: ConnectionTarget) {
@@ -314,23 +346,27 @@ async function replaceCredential(
   const secrets = dependencies.secrets ?? credentialStore();
   const saved = await run(
     secrets.withStored(uri, (reference) =>
-      updateEnvironment(directory, input.env, (current) =>
-        Effect.gen(function* () {
-          const connection = yield* connectionIn(current, input.connection);
-          if (JSON.stringify(connection) !== JSON.stringify(expected))
-            return yield* Effect.fail(error("ConnectionChanged"));
-          return {
-            ...current,
-            connections: {
-              ...current.connections,
-              [input.connection]: {
-                provider: connection.provider,
-                secretRef: reference,
-                ...(parsed.data === undefined ? {} : { defaultDatabase: parsed.data }),
+      updateEnvironment(
+        directory,
+        input.env,
+        (current) =>
+          Effect.gen(function* () {
+            const connection = yield* connectionIn(current, input.connection);
+            if (JSON.stringify(connection) !== JSON.stringify(expected))
+              return yield* Effect.fail(error("ConnectionChanged"));
+            return {
+              ...current,
+              connections: {
+                ...current.connections,
+                [input.connection]: {
+                  provider: connection.provider,
+                  secretRef: reference,
+                  ...(parsed.data === undefined ? {} : { defaultDatabase: parsed.data }),
+                },
               },
-            },
-          };
-        })
+            };
+          }),
+        dependencies.expectedRevision
       ).pipe(Effect.map(() => ({ env: input.env, connection: input.connection })))
     )
   );

@@ -16,7 +16,7 @@ The CLI supports discovery, collection metadata, bounded JSON/EJSON queries and
 exports, JavaScript scripts with native database handles, registration management,
 and local operation history. A detached local daemon keeps the worker and its
 MongoDB pools alive between commands. Database-user permissions govern all work;
-Runnel adds no read/write approval gate. MCP and other providers are planned.
+Runnel adds no read/write approval gate. `runnel ui` starts a foreground loopback management page using bundled Solid/Vite assets. `--open` opts into browser opening. MCP and other providers are planned.
 
 See [CLI usage](apps/cli/README.md) for commands and limits,
 [contributing](CONTRIBUTING.md) for local installation and development, and
@@ -96,3 +96,20 @@ history is on by default in a private file below the catalog directory.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Local human manager
+
+Run `runnel ui`, then use the terminal's one-use pairing link within 60 seconds.
+`runnel ui --open` explicitly opens it in the default browser. The installed CLI
+ships the static assets and fonts; no Vite server or frontend build runs at startup.
+The manager shows registrations, settings and daemon status without reading the
+vault or opening a database. Register an environment with only its name and a
+hidden URI. Test, discovery and credential replacement are explicit live actions.
+
+The foreground manager is one additional Node process. Database work still uses
+the existing daemon and worker, so an active manager plus database worker uses
+three backend processes. Stop manager leaves the database daemon alone; Stop
+database daemon interrupts its work without replay. The manager expires after
+30 minutes without human management actions. Read/status polling extends neither
+that timeout nor the database daemon's default five-minute idle timeout. See
+[CLI usage](apps/cli/README.md#local-human-manager) for pairing, security and lifecycle details.

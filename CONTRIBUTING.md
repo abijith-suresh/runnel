@@ -14,7 +14,8 @@ npm run verify
 
 | Command | What it does |
 | --- | --- |
-| `npm run build` | Builds the TypeScript project references in dependency order |
+| `npm run build` | Builds TypeScript references and bundled Solid/Vite assets |
+| `npm run test:ui` | Installs tarballs in an isolated consumer and tests real bundled assets with Chromium, synthetic providers and resource measurements |
 | `npm run clean` | Removes workspace build outputs and TypeScript caches |
 | `npm run typecheck` | Checks every workspace without emitting files; build first |
 | `npm run lint` | Runs Biome's recommended lint rules |
@@ -250,3 +251,20 @@ commands, architecture, tooling, or release mechanics change. Keep prose plain a
 mark proposals, examples, and unresolved decisions as planned. Do not turn planned
 examples into implemented commands as part of an unrelated change. Do not add product
 tests that assert placeholders; add behavior tests when there is behavior to test.
+
+## Management UI verification
+
+Run `npm exec -- playwright install chromium` once, then `npm run test:ui`. This
+uses repository-owned browser automation, an isolated installed tarball consumer,
+and synthetic vault/provider fixtures. It never reads the user's vault or connects
+a database. The fixture runs the installed manager, daemon and worker as separate
+processes so offline behavior, explicit inspection, idle and stop paths use real
+HTTP/IPC. `npm run verify` also checks installed HTTP assets and native Windows
+PowerShell `.cmd` foreground startup and HTTP shutdown when run on Windows.
+
+CI runs installed Chromium flows on Linux and native Windows. The browser driver
+prints process/RSS/CPU/latency/shutdown measurements with its methodology. These
+measure the synthetic fixture on that runner, not live MongoDB, an interactive
+corporate laptop, or a browser already in daily use. The UI uses the existing
+worker supervisor's forced Windows cancellation; graceful driver cleanup needs
+its own lifecycle work and interactive Windows evidence.

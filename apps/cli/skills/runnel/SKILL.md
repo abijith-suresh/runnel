@@ -229,6 +229,13 @@ outcomes but cannot prove whether a write committed.
 
 ## Management
 
+Humans can run `runnel ui` for the bundled foreground loopback manager, or
+`runnel ui --open` to explicitly open its one-use browser pairing link. Agents
+continue using these CLI operations. Opening/refreshing the manager is offline;
+registration needs only an environment name and hidden URI. Explicit tests,
+discovery and credential replacement may contact MongoDB. No browser query or
+script editor is provided. Stop manager and Stop database daemon are separate.
+
 `runnel setup --env NAME` is for a human in an interactive terminal. One hidden
 URI prompt saves the environment's default connection. No alias, database list,
 connection label or repeated confirmation is required. Saving alone makes no

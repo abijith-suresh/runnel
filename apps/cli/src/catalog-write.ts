@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
@@ -8,7 +8,7 @@ import { type Catalog, type CatalogError, decodeCatalog, readCatalog } from "./c
 export type CatalogWriteError =
   | CatalogError
   | {
-      readonly code: "CatalogBusy" | "CatalogTooLarge";
+      readonly code: "CatalogBusy" | "CatalogTooLarge" | "CatalogChanged";
       readonly message: string;
     };
 const unavailable = (): CatalogWriteError => ({
@@ -19,6 +19,10 @@ const busy = (): CatalogWriteError => ({
   code: "CatalogBusy",
   message: "Another process is updating the catalog. Retry shortly.",
 });
+
+/** Opaque snapshot for management clients. Never expose the underlying secret references. */
+export const catalogRevision = (catalog: Catalog): string =>
+  createHash("sha256").update(JSON.stringify(catalog)).digest("hex");
 
 /** Catalog commits and obsolete-secret cleanup must hold the same lock. */
 export async function acquireCatalogLock(directory: string) {
@@ -39,7 +43,8 @@ export async function acquireCatalogLock(directory: string) {
 /** Serialize a read/modify/write transaction. The updater must not perform external side effects. */
 export function updateCatalog<E>(
   directory: string,
-  update: (catalog: Catalog) => Effect.Effect<Catalog, E>
+  update: (catalog: Catalog) => Effect.Effect<Catalog, E>,
+  expectedRevision?: string
 ): Effect.Effect<Catalog, E | CatalogWriteError> {
   const acquire = Effect.tryPromise({
     try: async () => {
@@ -54,6 +59,11 @@ export function updateCatalog<E>(
     (owner) =>
       Effect.gen(function* () {
         const current = yield* readCatalog(owner.directory);
+        if (expectedRevision !== undefined && catalogRevision(current) !== expectedRevision)
+          return yield* Effect.fail({
+            code: "CatalogChanged" as const,
+            message: "The catalog changed. Refresh before making another change.",
+          });
         const next = yield* update(current);
         const validated = yield* decodeCatalog(next);
         const contents = `${JSON.stringify(validated, null, 2)}\n`;
