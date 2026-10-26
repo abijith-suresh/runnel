@@ -1,0 +1,26 @@
+---
+interface Props {
+  code: string;
+  label: string;
+  copy?: boolean;
+  output?: boolean;
+}
+const { code, label, copy = false, output = false } = Astro.props;
+---
+
+<figure class:list={["terminal", { "terminal-output": output }]}>
+  <figcaption class="terminal-heading">
+    <span>{label}</span>
+    {copy && (
+      <button type="button" data-copy={code} aria-label={`Copy ${label}`} hidden>
+        Copy
+      </button>
+    )}
+  </figcaption>
+  <pre tabindex="0" role="region" aria-label={label}><code translate="no">{code}</code></pre>
+  {copy && <p class="copy-status" role="status" aria-live="polite" aria-atomic="true"></p>}
+</figure>
+
+<script>
+  import "../scripts/copy.js";
+</script>

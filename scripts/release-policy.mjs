@@ -11,6 +11,7 @@ export const packages = [
   { name: "@abijith-suresh/runnel-mongodb", directory: "packages/mongodb" },
   { name: "@abijith-suresh/runnel", directory: "apps/cli" },
 ];
+export const website = { name: "runnel-website", directory: "apps/website" };
 const names = packages.map((pkg) => pkg.name);
 const changesetPath = (path) =>
   /^\.changeset\/[^/]+\.md$/.test(path) && path !== ".changeset/README.md";
@@ -63,13 +64,52 @@ export function validateVersions(before, after) {
 export function validateRepository(root = process.cwd()) {
   const manifest = readJson(root, "package.json");
   if (manifest.private !== true) fail("The root must remain private");
-  if (JSON.stringify(manifest.workspaces) !== JSON.stringify(packages.map((pkg) => pkg.directory)))
+  if (
+    !isDeepStrictEqual(manifest.workspaces, [
+      ...packages.map((pkg) => pkg.directory),
+      website.directory,
+    ])
+  )
     fail("Review release policy before changing workspace boundaries");
+  const site = readJson(root, `${website.directory}/package.json`);
+  if (
+    site.name !== website.name ||
+    site.private !== true ||
+    site.version !== "0.0.0" ||
+    site.publishConfig ||
+    site.main ||
+    site.bin ||
+    site.exports
+  )
+    fail(
+      "The website must remain private, unversioned release tooling without package entry points"
+    );
+  for (const field of ["dependencies", "optionalDependencies", "peerDependencies"])
+    if (Object.keys(site[field] ?? {}).length)
+      fail("Website build tooling belongs in its own devDependencies");
+  for (const [name, version] of Object.entries(site.devDependencies ?? {})) {
+    if (names.includes(name) || name.startsWith("@abijith-suresh/runnel"))
+      fail("The static website must not depend on Runnel packages");
+    if (!/^\d+\.\d+\.\d+$/.test(version)) fail("Pin website tooling to exact stable versions");
+  }
   const manifests = packages.map((pkg) => readJson(root, `${pkg.directory}/package.json`));
   validateVersions(manifests, manifests);
   for (const pkg of manifests) {
     if (pkg.private || pkg.publishConfig?.access !== "public")
       fail(`${pkg.name} must be publishable with public access`);
+    for (const field of [
+      "dependencies",
+      "devDependencies",
+      "optionalDependencies",
+      "peerDependencies",
+    ]) {
+      for (const [name, version] of Object.entries(pkg[field] ?? {})) {
+        if (name === website.name || /^(?:file|link|workspace):/.test(version))
+          fail(`${pkg.name}: public packages must not depend on private workspaces or local paths`);
+        if (field !== "devDependencies" && Object.hasOwn(site.devDependencies ?? {}, name))
+          fail(`${pkg.name}: website tooling must not become a public runtime dependency`);
+      }
+    }
     for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
       if (name.startsWith("@abijith-suresh/runnel") && !names.includes(name))
         fail(`Unknown internal dependency ${name}`);
@@ -108,6 +148,14 @@ export function validateRepository(root = process.cwd()) {
   for (const file of pending)
     validateChangeset(readFileSync(resolve(root, ".changeset", file), "utf8"), file);
   const lock = readJson(root, "package-lock.json");
+  const lockedSite = lock.packages?.[website.directory];
+  if (
+    lockedSite?.name !== site.name ||
+    lockedSite?.version !== site.version ||
+    !isDeepStrictEqual(lockedSite?.devDependencies, site.devDependencies) ||
+    !isDeepStrictEqual(lock.packages?.[""]?.workspaces, manifest.workspaces)
+  )
+    fail("Private website workspace and package-lock.json are out of sync");
   for (const [index, pkg] of packages.entries()) {
     const locked = lock.packages?.[pkg.directory];
     if (

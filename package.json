@@ -10,15 +10,16 @@
   "workspaces": [
     "packages/core",
     "packages/mongodb",
-    "apps/cli"
+    "apps/cli",
+    "apps/website"
   ],
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build && npm run build:website",
     "clean": "node scripts/clean.mjs",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "biome lint .",
-    "format": "biome format --write .",
-    "format:check": "biome format .",
+    "format": "biome format --write . && npm run format --workspace runnel-website",
+    "format:check": "biome format . && npm run format:check --workspace runnel-website",
     "changeset": "changeset",
     "changeset:status": "changeset status",
     "changeset:check": "node scripts/release-policy.mjs --pr",
@@ -32,7 +33,10 @@
     "check:native-credentials": "npm run build && node scripts/check-native-credentials.mjs",
     "check:mongodb": "npm run build && node scripts/pack-check.mjs --mongodb",
     "install:local": "npm run build && node scripts/local-install.mjs",
-    "check:mongodb-auth": "npm run build && node scripts/check-auth-mongodb.mjs"
+    "check:mongodb-auth": "npm run build && node scripts/check-auth-mongodb.mjs",
+    "build:website": "npm run build --workspace runnel-website",
+    "dev:website": "npm run dev --workspace runnel-website --",
+    "preview:website": "npm run preview --workspace runnel-website --"
   },
   "lint-staged": {
     "*.{js,mjs,cjs,ts,json,jsonc}": "biome check --write --no-errors-on-unmatched"
