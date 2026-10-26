@@ -339,3 +339,85 @@ test("explicit connection testing uses a bounded isolated ping and never lists d
   assert.equal(pings, 1);
   assert.equal(closed, 1);
 });
+
+test("registered connection tests and discovery use named worker targets without aliases or replay", async (t) => {
+  const { directory, cleanup } = await fixture();
+  t.after(cleanup);
+  const { updateCatalog } = await import("../dist/catalog-write.js");
+  await Effect.runPromise(
+    updateCatalog(directory, (catalog) =>
+      Effect.succeed({
+        ...catalog,
+        environments: { local: { ...catalog.environments["local"]!, databases: {} } },
+      })
+    )
+  );
+  let pings = 0,
+    enumerations = 0,
+    reads = 0,
+    denied = false;
+  const acquired: string[][] = [];
+  const operations = workerOperations(
+    directory,
+    {
+      database: async (...args) => {
+        acquired.push(args);
+        return {
+          command: async (command: unknown, options: unknown) => {
+            pings++;
+            assert.deepEqual(command, { ping: 1 });
+            assert.deepEqual(options, { timeoutMS: 10000 });
+          },
+          admin: () => ({
+            listDatabases: async (options: unknown) => {
+              enumerations++;
+              assert.deepEqual(options, {
+                nameOnly: true,
+                authorizedDatabases: true,
+                timeoutMS: 10000,
+              });
+              if (denied) throw { code: 13, message: "private-uri-and-driver-message" };
+              return { databases: Array.from({ length: 1001 }, (_, i) => ({ name: `db_${i}` })) };
+            },
+          }),
+        } as unknown as Db;
+      },
+      close: async () => {},
+    },
+    {
+      ...credentialStore(),
+      read: () => {
+        reads++;
+        return Effect.succeed("synthetic-private-uri");
+      },
+    },
+    () => {
+      throw new Error("Registered operations must use their connection pool");
+    }
+  );
+  t.after(() => operations.close());
+  const target = { operation: "inspectConnection" as const, env: "local", connection: "primary" };
+  assert.deepEqual(await operations.execute({ ...target, testOnly: true }), {
+    ok: true,
+    data: { databases: [], truncated: false },
+  });
+  assert.equal(enumerations, 0);
+  const listed = await operations.execute(target);
+  assert(listed.ok && "databases" in listed.data);
+  assert.equal(listed.data.databases.length, 1000);
+  assert.equal(listed.data.truncated, true);
+  assert.doesNotMatch(JSON.stringify(listed), /synthetic-private-uri|keyring|secretRef/);
+  denied = true;
+  const refusal = await operations.execute(target);
+  assert(!refusal.ok && refusal.error.code === "PermissionDenied");
+  assert.doesNotMatch(JSON.stringify(refusal), /private-uri|driver-message/);
+  assert((await operations.execute({ ...target, testOnly: true })).ok);
+  assert.equal(pings, 2);
+  assert.equal(enumerations, 2);
+  assert.equal(reads, 4);
+  assert(
+    acquired.every(
+      (args) => args[0] === JSON.stringify(["local", "primary"]) && args[2] === "admin"
+    )
+  );
+});

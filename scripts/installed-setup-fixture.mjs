@@ -12,6 +12,9 @@ const { setup } = await import(new URL("setup.js", base));
 const { credentialStore } = await import(new URL("secrets.js", base));
 const { workerOperations } = await import(new URL("worker-operations.js", base));
 const { readCatalog } = await import(new URL("catalog.js", base));
+const { inspectConnection, replaceConnectionCredential } = await import(
+  new URL("management.js", base)
+);
 const directory = fileURLToPath(new URL("./fake-setup-catalog", import.meta.url));
 const stored = new Map();
 const secrets = credentialStore(async (id) => ({
@@ -60,11 +63,36 @@ const cli = (args) => {
 };
 assert.equal(cli(["databases", "-e", "local"]).defaultDatabase, "accounts");
 assert.deepEqual(cli(["databases", "-e", "local"]).databases, []);
+const settingsResult = cli([
+  "settings",
+  "set",
+  "--idle-timeout-ms",
+  "1000",
+  "--script-timeout-ms",
+  "45000",
+  "--history-enabled",
+  "false",
+]);
+assert.deepEqual(settingsResult.settings, {
+  idleTimeoutMs: 1000,
+  scriptTimeoutMs: 45000,
+  historyEnabled: false,
+});
+const configuration = cli(["config"]);
+assert.equal(configuration.settings.scriptTimeoutMs, 45000);
+assert.equal(configuration.environments[0].connections[0].name, "primary");
+assert.doesNotMatch(JSON.stringify(configuration), /private-fixture|secretRef|keyring:/);
+assert(!existsSync(join(directory, "daemon")));
 if (process.platform === "win32") {
   // Exercise npm's actual .cmd shim through native PowerShell from outside the
   // consumer and source tree. Static commands only; credentials remain fake.
   const launcher = fileURLToPath(new URL("./node_modules/.bin/runnel.cmd", import.meta.url));
-  for (const command of ["help setup", "connections -e local"]) {
+  for (const command of [
+    "help setup",
+    "connections -e local",
+    "config",
+    "settings set --idle-timeout-ms 1000 --script-timeout-ms 45000 --history-enabled false",
+  ]) {
     const result = spawnSync(
       "powershell.exe",
       [
@@ -85,7 +113,9 @@ if (process.platform === "win32") {
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.equal(result.stderr, "");
     if (command === "help setup") assert.match(result.stdout, /one|hidden URI|hidden prompt/);
-    else assert.equal(JSON.parse(result.stdout).data.connections[0].defaultDatabase, "accounts");
+    else if (command === "connections -e local")
+      assert.equal(JSON.parse(result.stdout).data.connections[0].defaultDatabase, "accounts");
+    else assert.equal(JSON.parse(result.stdout).data.settings.scriptTimeoutMs, 45000);
     assert.doesNotMatch(result.stdout, /private-fixture|keyring:|secretRef/);
   }
 }
@@ -97,6 +127,11 @@ const operations = workerOperations(
       acquired.push(args);
       return {
         databaseName: args[2],
+        command: async (command, options) => {
+          assert.deepEqual(command, { ping: 1 });
+          assert.deepEqual(options, { timeoutMS: 10000 });
+        },
+        admin: () => ({ listDatabases: async () => ({ databases: [{ name: "accounts" }] }) }),
         listCollections: () => ({ async *[Symbol.asyncIterator]() {}, close: async () => {} }),
       };
     },
@@ -127,6 +162,46 @@ try {
   });
   assert(script.ok);
   assert.deepEqual(script.data.value, { primary: "physical", current: "reports" });
+  const execute = (_directory, request) => {
+    assert.doesNotMatch(JSON.stringify(request), /private-fixture|secretRef|keyring:|mongodb:/);
+    return operations.execute(request);
+  };
+  assert(
+    (
+      await inspectConnection(
+        directory,
+        { env: "local", connection: "primary" },
+        false,
+        undefined,
+        execute
+      )
+    ).ok
+  );
+  assert.deepEqual(
+    await inspectConnection(
+      directory,
+      { env: "local", connection: "primary" },
+      true,
+      undefined,
+      execute
+    ),
+    {
+      ok: true,
+      data: { databases: ["accounts"], truncated: false },
+    }
+  );
+  const rotated = await replaceConnectionCredential(
+    directory,
+    {
+      env: "local",
+      connection: "primary",
+      uri: "mongodb://replacement-private-fixture.invalid/new_accounts",
+    },
+    { secrets, inspect: async () => ({ ok: true }) }
+  );
+  assert.deepEqual(rotated, { ok: true, data: { env: "local", connection: "primary" } });
+  assert.equal(cli(["config"]).environments[0].connections[0].defaultDatabase, "new_accounts");
+  assert.equal(stored.size, 2);
   // A v1 catalog migrates through the actual installed CLI without vault access.
   const catalog = await Effect.runPromise(readCatalog(directory));
   const legacy = {

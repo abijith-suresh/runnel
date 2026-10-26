@@ -106,8 +106,8 @@ versions, dependency direction, public package metadata, Effect v4 pins, and the
 lockfile. `npm run changeset:check` adds a Git comparison on PRs. Every ordinary
 PR must add a nonempty patch Changeset and leave versions unchanged.
 
-After development PRs and their Changesets land on main, and after every three
-merged feature PRs, prepare a version PR:
+Version and stabilization PRs are deferred until an explicit owner instruction.
+When one is requested after development Changesets land, prepare it separately:
 
 ```sh
 git switch main

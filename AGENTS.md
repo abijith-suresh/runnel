@@ -9,7 +9,7 @@ Non-negotiables:
 - No MCP or other-provider package before implementation needs it; no custom script DSL, workflow engine, or mongosh emulation.
 - Never make a public unpacked artifact depend on a private workspace; keep the three published versions aligned.
 
-Status: live, early stage. The CLI works end to end against MongoDB; MCP and additional providers are planned.
+Status: live, early stage. The CLI works end to end against MongoDB and exposes redacted configuration/settings management. A bundled human UI, MCP and additional providers are planned.
 
 ## Sources of Truth
 | Fact | Where |

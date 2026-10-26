@@ -221,26 +221,40 @@ export function workerOperations(
             "The operation request is invalid or exceeds the IPC size limit."
           );
         }
-        if (request.operation === "inspect") {
-          // Human setup discovery uses an isolated client and retains no unregistered URI.
-          const temporary = inspectionPool();
+        if (request.operation === "inspect" || request.operation === "inspectConnection") {
+          // Unregistered URIs get an isolated client; registered access reuses the
+          // same pinned target/credential resolution and connection pool as queries.
+          const temporary = request.operation === "inspect" ? inspectionPool() : undefined;
           try {
-            const db = await temporary.database("setup", request.uri, "admin");
+            const db =
+              request.operation === "inspect"
+                ? await temporary!.database("setup", request.uri, "admin")
+                : (
+                    await database({
+                      env: request.env,
+                      connection: request.connection,
+                      db: "admin",
+                    })
+                  ).handle;
             if (request.testOnly) {
               await db.command({ ping: 1 }, { timeoutMS: 10000 });
               return { ok: true, data: { databases: [], truncated: false } };
             }
-            const result = await db
-              .admin()
-              .listDatabases({ nameOnly: true, authorizedDatabases: true, timeoutMS: 10000 });
+            const result = await db.admin().listDatabases({
+              nameOnly: true,
+              authorizedDatabases: true,
+              timeoutMS: 10000,
+            });
             const names = result.databases.map(({ name }) => name).sort();
-            const response: WorkerResult = {
+            return boundedResult({
               ok: true,
-              data: { databases: names.slice(0, nameLimit), truncated: names.length > nameLimit },
-            };
-            return boundedResult(response);
+              data: {
+                databases: names.slice(0, nameLimit),
+                truncated: names.length > nameLimit,
+              },
+            });
           } finally {
-            await temporary.close();
+            await temporary?.close();
           }
         }
         if (request.operation === "run") {

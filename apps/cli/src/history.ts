@@ -216,7 +216,7 @@ export async function appendHistory(
 }
 function targets(
   catalog: Catalog,
-  request: Exclude<WorkerOperation, { operation: "inspect" }>
+  request: Exclude<WorkerOperation, { operation: "inspect" | "inspectConnection" }>
 ): HistoryEntry["targets"] {
   if (request.env === undefined || !Object.hasOwn(catalog.environments, request.env)) return {};
   const selected = resolveCatalogTarget(catalog, request);
@@ -248,7 +248,7 @@ export function createOperationHistory(
     } catch {
       return { result: await worker.execute(input, undefined, signal), historyFailed: false };
     }
-    if (request.operation === "inspect")
+    if (request.operation === "inspect" || request.operation === "inspectConnection")
       return { result: await worker.execute(request, undefined, signal), historyFailed: false };
     const timestamp = new Date().toISOString();
     const started = performance.now();

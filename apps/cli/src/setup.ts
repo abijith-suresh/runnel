@@ -143,9 +143,34 @@ export function registerConnection(
     return yield* secrets.withStored(input.uri, (reference) =>
       updateCatalog(directory, (current) =>
         addRegistration(current, input, reference, defaultDatabase)
+      ).pipe(
+        Effect.map(() => ({
+          env: input.env,
+          connection: input.connection,
+          databases: input.aliases.map(({ name }) => name),
+        }))
       )
     );
   });
+}
+
+/** The ordinary two-input human registration operation, independent of terminal or UI. */
+export function registerEnvironment(
+  directory: string,
+  input: { readonly env: string; readonly uri: string },
+  secrets = credentialStore()
+) {
+  return registerConnection(
+    directory,
+    {
+      ...input,
+      connection: "primary",
+      aliases: [],
+      makeDefault: true,
+      requireEmptyEnvironment: true,
+    },
+    secrets
+  );
 }
 
 export async function setup(
@@ -210,17 +235,19 @@ export async function setup(
     }
     const aliases: Registration["aliases"] = [];
     const saved = await Effect.runPromise(
-      registerConnection(
-        directory,
-        {
-          env,
-          connection,
-          uri,
-          aliases,
-          makeDefault: options.connection === undefined || options.makeDefault === true,
-          requireEmptyEnvironment: options.connection === undefined,
-        },
-        dependencies.secrets
+      (options.connection === undefined
+        ? registerEnvironment(directory, { env, uri }, dependencies.secrets)
+        : registerConnection(
+            directory,
+            {
+              env,
+              connection,
+              uri,
+              aliases,
+              makeDefault: options.makeDefault === true,
+            },
+            dependencies.secrets
+          )
       ).pipe(Effect.result)
     );
     return Result.isFailure(saved)

@@ -34,6 +34,7 @@ import {
   historyMaximumEntries,
   readHistory,
 } from "../dist/history.js";
+import { setSettings } from "../dist/settings.js";
 import { failure, type WorkerResult } from "../dist/worker-protocol.js";
 
 const executable = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
@@ -245,18 +246,22 @@ test("recording uses configured names and allowlisted outcome codes without argu
 test("explicit opt-out is honored on newly submitted operations and inspect/invalid requests are never recorded", async (t) => {
   const { home } = await fixture(t);
   const file = join(home, "catalog.json");
-  await writeFile(
-    file,
-    JSON.stringify({ ...catalog(), settings: { ...catalog().settings, historyEnabled: false } })
-  );
+  await writeFile(file, JSON.stringify(catalog()));
+  await Effect.runPromise(setSettings(home, { historyEnabled: false }));
   const history = createOperationHistory(home, { execute: async () => success });
   assert.deepEqual(
     await history.execute({ operation: "count", env: "local", collection: "users" }),
     { result: success, historyFailed: false }
   );
   assert.deepEqual(await readHistory(home), []);
-  await writeFile(file, JSON.stringify(catalog()));
+  await Effect.runPromise(setSettings(home, { historyEnabled: true }));
   await history.execute({ operation: "inspect", uri: "mongodb://synthetic-sensitive-uri" });
+  await history.execute({
+    operation: "inspectConnection",
+    env: "local",
+    connection: "primary",
+    testOnly: true,
+  });
   await history.execute({ operation: "invalid", secret: "synthetic-sensitive-value" });
   assert.deepEqual(await readHistory(home), []);
   await history.execute({ operation: "list", env: "local" });
