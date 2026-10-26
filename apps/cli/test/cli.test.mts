@@ -59,7 +59,7 @@ test("catalog management CLI updates aliases without starting a worker", (t) => 
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const path = join(directory, "catalog.json");
   const original = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     settings: { idleTimeoutMs: 300000, scriptTimeoutMs: 300000 },
     environments: {
       local: {

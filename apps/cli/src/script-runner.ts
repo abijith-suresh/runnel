@@ -11,7 +11,12 @@ import type { WorkerOperation, WorkerResult } from "./worker-protocol.js";
 
 export type ScriptOperation = Extract<WorkerOperation, { operation: "run" }>;
 export const scriptSourceBytes = 1024 * 1024;
-const targetSchema = Schema.Struct({ env: Schema.String, db: Schema.optionalKey(Schema.String) });
+const targetText = Schema.String.check(Schema.isMaxLength(1024));
+const targetSchema = Schema.Struct({
+  env: targetText,
+  db: Schema.optionalKey(targetText),
+  connection: Schema.optionalKey(targetText),
+});
 const decodeTarget = Schema.decodeUnknownSync(targetSchema, { onExcessProperty: "error" });
 const unavailable = () =>
   new QueryError(
@@ -320,7 +325,7 @@ export function createScriptRunner() {
     async execute(
       request: ScriptOperation,
       resolve: () => Promise<{ env: string; db: string; handle: Db }>,
-      connect: (target: { env: string; db?: string }) => Promise<Db>,
+      connect: (target: { env: string; db?: string; connection?: string }) => Promise<Db>,
       args: Schema.Json
     ): Promise<WorkerResult> {
       if (closed) throw new QueryError("ScriptStopped", "The script runner is stopped.");
@@ -391,7 +396,7 @@ export function createScriptRunner() {
             } catch {
               throw new QueryError(
                 "InputInvalid",
-                "connect requires an explicit environment and optional database alias."
+                "connect requires an explicit environment and optional database and connection."
               );
             }
             const handle = await connect(target);

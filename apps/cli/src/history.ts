@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, realpath, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { resolveDatabaseTarget } from "@abijith-suresh/runnel-core";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { lock } from "proper-lockfile";
 import { type Catalog, isCatalogName, readCatalog } from "./catalog.js";
 import { privateDirectory } from "./daemon-state.js";
+import { resolveCatalogTarget } from "./targets.js";
 import { decodeOperation, type WorkerOperation, type WorkerResult } from "./worker-protocol.js";
 
 export const historyMaximumEntries = 1000;
@@ -28,6 +28,8 @@ const errorCodes = [
   "NoDatabases",
   "DatabaseRequired",
   "DatabaseNotFound",
+  "ConnectionRequired",
+  "ConnectionNotFound",
   "TargetChanged",
   "CatalogInvalid",
   "CatalogUnavailable",
@@ -217,19 +219,17 @@ function targets(
   request: Exclude<WorkerOperation, { operation: "inspect" }>
 ): HistoryEntry["targets"] {
   if (request.env === undefined || !Object.hasOwn(catalog.environments, request.env)) return {};
-  const selected = resolveDatabaseTarget(
-    new Map(
-      Object.entries(catalog.environments).map(([env, value]) => [
-        env,
-        new Set(Object.keys(value.databases)),
-      ])
-    ),
-    request
-  );
+  const selected = resolveCatalogTarget(catalog, request);
   if (Result.isFailure(selected)) return { env: request.env };
-  const { env, db } = selected.success;
-  const mapping = catalog.environments[env]?.databases[db];
-  return { env, db, ...(mapping === undefined ? {} : { connection: mapping.connection }) };
+  const { env, db, connection, database } = selected.success;
+  const alias = catalog.environments[env]?.databases[db];
+  // Preserve alias-only history metadata. Physical input and URI databases are
+  // not recorded, even when they happen to fit the catalog-name alphabet.
+  const configuredAlias =
+    request.connection === undefined &&
+    alias?.connection === connection &&
+    alias.database === database;
+  return { env, ...(configuredAlias ? { db } : {}), connection };
 }
 /** One entry per accepted application operation, even if the worker is reset or crashes. */
 export function createOperationHistory(

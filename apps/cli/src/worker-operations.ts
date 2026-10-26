@@ -1,13 +1,13 @@
-import { resolveDatabaseTarget } from "@abijith-suresh/runnel-core";
 import { createMongoPool, type MongoPool } from "@abijith-suresh/runnel-mongodb";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { BSON } from "mongodb";
-import { type Catalog, readCatalog } from "./catalog.js";
+import { type Catalog, isDatabaseName, readCatalog } from "./catalog.js";
 import { executeQuery, prepareQuery } from "./mongodb-query.js";
 import { QueryError } from "./query-input.js";
 import { createScriptRunner, prepareScript } from "./script-runner.js";
 import { credentialStore } from "./secrets.js";
+import { resolveCatalogTarget } from "./targets.js";
 import {
   bounded,
   decodeOperation,
@@ -21,16 +21,23 @@ const targetMessages = {
   EnvironmentRequired: "Specify an environment with -e or --env.",
   EnvironmentNotFound:
     "The named environment is not configured. Run runnel envs; a human can register one with runnel setup.",
-  NoDatabases: "The environment has no database aliases. Run setup first.",
-  DatabaseRequired: "Specify a database alias with -d or --db.",
-  DatabaseNotFound: "The named database alias is not configured in this environment.",
+  NoDatabases:
+    "The environment has no database aliases or default connection. Select --connection and --db, or configure a default connection.",
+  DatabaseRequired:
+    "Specify a physical database or configured alias with -d or --db. The URI has no default database, or aliases are ambiguous.",
+  DatabaseNotFound:
+    "The named database alias is not configured and there is no default connection. Select --connection for a physical database.",
+  ConnectionRequired:
+    "Select --connection for a physical database, use a configured alias, or set a default with runnel connection default NAME -e ENV.",
+  ConnectionNotFound: "The selected connection is not configured. Run runnel connections -e ENV.",
 };
 
 const operationMessages = {
   ...targetMessages,
   CatalogInvalid: "The catalog mapping or schema is invalid. Check names and secret references.",
   CatalogUnavailable: "Cannot read the Runnel catalog. Check its path, permissions, and format.",
-  SecretNotFound: "The configured credential is missing. Run setup again.",
+  SecretNotFound:
+    "The configured credential is missing. Run runnel connections -e ENV, then have a human run runnel connection rotate NAME -e ENV in a terminal. Rotation preserves aliases and the default connection.",
   TargetChanged:
     "The connection mappings changed while resolving credentials. Start a new operation to use the current catalog.",
   SecretUnavailable: "OS credential storage is unavailable or locked. Unlock it and retry.",
@@ -87,7 +94,7 @@ export function databaseFailure(error: unknown): WorkerResult {
     if (code === 18)
       return failure(
         "AuthenticationFailed",
-        "MongoDB rejected the configured credentials. Run setup again."
+        "MongoDB rejected the configured credentials. Have a human use runnel connection rotate NAME -e ENV in a terminal to replace them."
       );
     const name = error instanceof Error ? error.name : "";
     if (name === "MongoOperationTimeoutError")
@@ -122,7 +129,8 @@ const boundedResult = (result: WorkerResult): WorkerResult => {
 export function workerOperations(
   directory: string,
   pool: MongoPool = createMongoPool(),
-  secrets = credentialStore()
+  secrets = credentialStore(),
+  inspectionPool: () => MongoPool = createMongoPool
 ) {
   const scripts = createScriptRunner();
   const catalogSnapshot = async (): Promise<Catalog> => {
@@ -130,11 +138,15 @@ export function workerOperations(
     if (Result.isFailure(result)) throw new QueryError(result.failure.code, result.failure.message);
     return result.success;
   };
-  const connectionMappings = (catalog: Catalog, env: string, connection: string) =>
-    Object.entries(catalog.environments[env]?.databases ?? {})
+  const connectionMappings = (catalog: Catalog, env: string, connection: string) => ({
+    defaultConnection: catalog.environments[env]?.defaultConnection,
+    defaultDatabase: catalog.environments[env]?.connections[connection]?.defaultDatabase,
+    provider: catalog.environments[env]?.connections[connection]?.provider,
+    aliases: Object.entries(catalog.environments[env]?.databases ?? {})
       .filter(([, alias]) => alias.connection === connection)
       .map(([name, alias]): [string, string] => [name, alias.database])
-      .sort(([left], [right]) => left.localeCompare(right));
+      .sort(([left], [right]) => left.localeCompare(right)),
+  });
 
   const operationDatabase = () => {
     let snapshot: Promise<Catalog> | undefined;
@@ -169,37 +181,28 @@ export function workerOperations(
         reference = replacement.secretRef;
       }
     };
-    return async (target: { env?: string; db?: string }) => {
+    return async (target: { env?: string; db?: string; connection?: string }) => {
       // Pin all named mappings together, including aliases first visited later in
       // a script. Only the next operation observes catalog additions and renames.
       snapshot ??= catalogSnapshot();
       const catalog = await snapshot;
-      const available = new Map(
-        Object.entries(catalog.environments).map(([env, value]) => [
-          env,
-          new Set(Object.keys(value.databases)),
-        ])
-      );
-      const selected = resolveDatabaseTarget(available, {
-        ...(target.env === undefined ? {} : { env: target.env }),
-        ...(target.db === undefined ? {} : { db: target.db }),
-      });
+      const selected = resolveCatalogTarget(catalog, target);
       if (Result.isFailure(selected))
         throw new QueryError(selected.failure._tag, targetMessages[selected.failure._tag]);
-      const { env, db } = selected.success;
+      const { env, db, connection: connectionName, database: physicalDatabase } = selected.success;
+      if (!isDatabaseName(physicalDatabase))
+        throw new QueryError("InputInvalid", operationMessages.InputInvalid);
       const environment = catalog.environments[env];
-      const alias = environment?.databases[db];
-      const connection = alias && environment?.connections[alias.connection];
-      if (!alias || !connection)
-        throw new QueryError("CatalogInvalid", "The catalog mapping is invalid.");
-      const key = JSON.stringify([env, alias.connection]);
+      const connection = environment?.connections[connectionName];
+      if (!connection) throw new QueryError("CatalogInvalid", "The catalog mapping is invalid.");
+      const key = JSON.stringify([env, connectionName]);
       let pending = credentials.get(key);
       if (!pending) {
-        pending = credential(catalog, env, alias.connection, connection.secretRef);
+        pending = credential(catalog, env, connectionName, connection.secretRef);
         credentials.set(key, pending);
       }
       const uri = await pending;
-      const handle = await pool.database(key, uri, alias.database);
+      const handle = await pool.database(key, uri, physicalDatabase);
       return { env, db, handle };
     };
   };
@@ -220,9 +223,13 @@ export function workerOperations(
         }
         if (request.operation === "inspect") {
           // Human setup discovery uses an isolated client and retains no unregistered URI.
-          const temporary = createMongoPool();
+          const temporary = inspectionPool();
           try {
             const db = await temporary.database("setup", request.uri, "admin");
+            if (request.testOnly) {
+              await db.command({ ping: 1 }, { timeoutMS: 10000 });
+              return { ok: true, data: { databases: [], truncated: false } };
+            }
             const result = await db
               .admin()
               .listDatabases({ nameOnly: true, authorizedDatabases: true, timeoutMS: 10000 });

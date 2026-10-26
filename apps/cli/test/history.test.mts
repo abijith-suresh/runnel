@@ -459,3 +459,43 @@ test("an atomic replacement after open preserves the reader's valid snapshot", {
   }
   assert.deepEqual(await readHistory(home), [entry(99)]);
 });
+
+test("physical targets and URI databases stay out of alias-only history metadata", async (t) => {
+  const { home, path } = await fixture(t);
+  const configured = catalog();
+  await writeFile(
+    join(home, "catalog.json"),
+    JSON.stringify({
+      ...configured,
+      environments: {
+        local: {
+          ...configured.environments.local,
+          defaultConnection: "primary",
+          connections: {
+            primary: {
+              ...configured.environments.local.connections.primary,
+              defaultDatabase: "private_uri_database",
+            },
+          },
+        },
+      },
+    })
+  );
+  const history = createOperationHistory(home, { execute: async () => success });
+  for (const target of [
+    {},
+    { db: "private_physical_database" },
+    { db: "private_東京" },
+    { connection: "primary", db: "accounts" },
+  ]) {
+    const result = await history.execute({ operation: "list", env: "local", ...target });
+    assert.equal(result.historyFailed, false);
+  }
+  await history.execute({ operation: "list", env: "local", db: "accounts" });
+  await history.flush();
+  const entries = await readHistory(home);
+  assert.deepEqual(entries[0]?.targets, { env: "local", db: "accounts", connection: "primary" });
+  for (const entry of entries.slice(1))
+    assert.deepEqual(entry.targets, { env: "local", connection: "primary" });
+  assert.doesNotMatch(await readFile(path, "utf8"), /private_|東京|physical_database/);
+});

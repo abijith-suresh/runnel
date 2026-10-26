@@ -103,7 +103,8 @@ export function credentialStore(entryFactory: CredentialEntryFactory = nativeEnt
         if (value === undefined || value === null)
           return yield* Effect.fail({
             code: "SecretNotFound" as const,
-            message: "The configured connection credential is missing. Run setup again.",
+            message:
+              "The configured connection credential is missing. Use runnel connections -e ENV, then have a human run runnel connection rotate NAME -e ENV in a terminal.",
           });
         return value;
       }),

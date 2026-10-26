@@ -123,3 +123,34 @@ test("client creation failure does not poison subsequent pool acquisition", asyn
   assert.equal((await pool.database("key", "uri", "db")).databaseName, "db");
   await pool.close();
 });
+
+test("offline URI parsing distinguishes its default database from authSource", async () => {
+  const { mongoConnectionDatabase } = await import("../dist/index.js");
+  for (const [uri, database] of [
+    ["mongodb://user:synthetic@host.invalid/accounts?authSource=admin", "accounts"],
+    ["mongodb://host.invalid/?authSource=admin", undefined],
+    ["mongodb+srv://cluster.invalid/reports?authSource=auth", "reports"],
+    ["mongodb://host.invalid/%E6%9D%B1%E4%BA%AC", "東京"],
+    ["mongodb://[::1]:27017/accounts", "accounts"],
+    ["mongodb://host.invalid:65535,other.invalid:27017/accounts", "accounts"],
+    ["mongodb://%2Ftmp%2Frunnel-fixture.sock/accounts", "accounts"],
+  ] as const)
+    assert.equal(mongoConnectionDatabase(uri), database);
+  for (const uri of [
+    "https://host.invalid",
+    "mongodb://",
+    "mongodb://host.invalid/%ZZ",
+    "mongodb://u:synthetic%ZZ@host.invalid",
+    "mongodb://host.invalid:bogus/accounts",
+    "mongodb://host.invalid:99999/accounts",
+    "mongodb://host.invalid:0/accounts",
+    "mongodb://[not-an-ip]:27017/accounts",
+    "mongodb://host.invalid,,other.invalid/accounts",
+  ]) {
+    assert.throws(
+      () => mongoConnectionDatabase(uri),
+      (error: unknown) =>
+        error instanceof Error && error.message === "The MongoDB connection string is invalid."
+    );
+  }
+});

@@ -17,6 +17,10 @@ const connection = Schema.Struct({
   provider: Schema.Literal("mongodb"),
   secretRef: Schema.String.check(Schema.isPattern(/^keyring:runnel\/[A-Za-z0-9_-]{1,128}$/)),
 });
+const currentConnection = Schema.Struct({
+  ...connection.fields,
+  defaultDatabase: Schema.optionalKey(Schema.String.check(Schema.isPattern(databasePattern))),
+});
 const database = Schema.Struct({
   connection: name,
   database: Schema.String.check(Schema.isPattern(databasePattern)),
@@ -25,17 +29,30 @@ const timeout = Schema.Number.check(
   Schema.isInt(),
   Schema.isBetween({ minimum: 0, maximum: 2147483647 })
 );
-const catalogSchema = Schema.Struct({
+const settings = Schema.Struct({
+  idleTimeoutMs: timeout,
+  scriptTimeoutMs: timeout,
+  historyEnabled: Schema.optionalKey(Schema.Boolean),
+});
+const legacyCatalogSchema = Schema.Struct({
   schemaVersion: Schema.Literal(1),
-  settings: Schema.Struct({
-    idleTimeoutMs: timeout,
-    scriptTimeoutMs: timeout,
-    historyEnabled: Schema.optionalKey(Schema.Boolean),
-  }),
+  settings,
   environments: Schema.Record(
     name,
     Schema.Struct({
       connections: Schema.Record(name, connection),
+      databases: Schema.Record(name, database),
+    })
+  ),
+});
+const catalogSchema = Schema.Struct({
+  schemaVersion: Schema.Literal(2),
+  settings,
+  environments: Schema.Record(
+    name,
+    Schema.Struct({
+      defaultConnection: Schema.optionalKey(name),
+      connections: Schema.Record(name, currentConnection),
       databases: Schema.Record(name, database),
     })
   ),
@@ -55,7 +72,7 @@ const invalid = (): CatalogError => ({
 });
 
 export const emptyCatalog = (): Catalog => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   settings: { idleTimeoutMs: 300000, scriptTimeoutMs: 300000 },
   environments: {},
 });
@@ -84,9 +101,13 @@ export function catalogDirectory(
 
 export function decodeCatalog(input: unknown): Effect.Effect<Catalog, CatalogError> {
   return Effect.gen(function* () {
-    const catalog = yield* Schema.decodeUnknownEffect(catalogSchema, { onExcessProperty: "error" })(
-      input
-    ).pipe(Effect.mapError(invalid));
+    const decoded = yield* Schema.decodeUnknownEffect(
+      Schema.Union([legacyCatalogSchema, catalogSchema]),
+      { onExcessProperty: "error" }
+    )(input).pipe(Effect.mapError(invalid));
+    // Legacy mappings retain exactly their alias-only semantics. Reading never writes.
+    // The next locked commit writes v2, which older v1 writers refuse to decode.
+    const catalog: Catalog = { ...decoded, schemaVersion: 2 };
     for (const [envName, env] of Object.entries(catalog.environments)) {
       if (
         [envName, ...Object.keys(env.connections), ...Object.keys(env.databases)].some(
@@ -94,6 +115,15 @@ export function decodeCatalog(input: unknown): Effect.Effect<Catalog, CatalogErr
         )
       )
         return yield* Effect.fail(invalid());
+      if (
+        env.defaultConnection !== undefined &&
+        (!isCatalogName(env.defaultConnection) ||
+          !Object.hasOwn(env.connections, env.defaultConnection))
+      )
+        return yield* Effect.fail(invalid());
+      for (const entry of Object.values(env.connections))
+        if (entry.defaultDatabase !== undefined && !isDatabaseName(entry.defaultDatabase))
+          return yield* Effect.fail(invalid());
       for (const alias of Object.values(env.databases)) {
         if (!Object.hasOwn(env.connections, alias.connection) || !isDatabaseName(alias.database))
           return yield* Effect.fail(invalid());

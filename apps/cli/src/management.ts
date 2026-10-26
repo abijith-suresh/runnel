@@ -4,6 +4,7 @@ import { type Catalog, isCatalogName, isDatabaseName, readCatalog } from "./cata
 import { acquireCatalogLock, updateCatalog } from "./catalog-write.js";
 import { executeWithDaemon } from "./daemon-client.js";
 import { credentialStore } from "./secrets.js";
+import { connectionDatabase } from "./setup.js";
 import { PromptError, type SetupPrompt, terminalPrompt } from "./setup-prompt.js";
 
 export type ManagementError = { readonly code: string; readonly message: string };
@@ -218,7 +219,9 @@ export async function removeConnection(
           const connections = { ...current.connections };
           delete connections[input.connection];
           obsolete = connection.secretRef;
-          return { ...current, connections };
+          const next = { ...current, connections };
+          if (next.defaultConnection === input.connection) delete next.defaultConnection;
+          return next;
         })
       );
       return { env: input.env, connection: input.connection };
@@ -227,6 +230,26 @@ export async function removeConnection(
   if (!result.ok || !obsolete) return result;
   const warning = await cleanObsoleteSecret(directory, obsolete, secrets);
   return warning ? { ...result, warning } : result;
+}
+
+/** Changes target selection only; credentials and physical databases are untouched. */
+export async function defaultConnection(
+  directory: string,
+  input: ConnectionTarget
+): Promise<ManagementResult<ConnectionTarget>> {
+  return run(
+    Effect.gen(function* () {
+      if (![input.env, input.connection].every(isCatalogName))
+        return yield* Effect.fail(error("ManagementInvalid"));
+      yield* updateEnvironment(directory, input.env, (current) =>
+        Effect.gen(function* () {
+          yield* connectionIn(current, input.connection);
+          return { ...current, defaultConnection: input.connection };
+        })
+      );
+      return input;
+    })
+  );
 }
 
 type Inspection = { readonly ok: true } | { readonly ok: false; readonly error: ManagementError };
@@ -258,10 +281,12 @@ export async function rotateConnection(
     const uri = await prompt.ask("Replacement MongoDB connection URI (hidden)", { hidden: true });
     if (!uri || Buffer.byteLength(uri, "utf8") > 16384)
       return { ok: false, error: error("SecretInvalid") };
+    const parsed = await run(connectionDatabase(uri));
+    if (!parsed.ok) return parsed;
     const inspected = await prompt.progress<Inspection>("Checking connection…", (signal) =>
       dependencies.inspect
         ? dependencies.inspect(uri, signal)
-        : executeWithDaemon(directory, { operation: "inspect", uri }, signal)
+        : executeWithDaemon(directory, { operation: "inspect", uri, testOnly: true }, signal)
     );
     if (!inspected.ok && inspected.error.code !== "PermissionDenied") {
       const code = inspected.error.code;
@@ -282,16 +307,17 @@ export async function rotateConnection(
         updateEnvironment(directory, input.env, (current) =>
           Effect.gen(function* () {
             const connection = yield* connectionIn(current, input.connection);
-            if (
-              connection.provider !== expected.provider ||
-              connection.secretRef !== expected.secretRef
-            )
+            if (JSON.stringify(connection) !== JSON.stringify(expected))
               return yield* Effect.fail(error("ConnectionChanged"));
             return {
               ...current,
               connections: {
                 ...current.connections,
-                [input.connection]: { ...connection, secretRef: reference },
+                [input.connection]: {
+                  provider: connection.provider,
+                  secretRef: reference,
+                  ...(parsed.data === undefined ? {} : { defaultDatabase: parsed.data }),
+                },
               },
             };
           })

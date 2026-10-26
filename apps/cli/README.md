@@ -1,12 +1,12 @@
 # Runnel CLI
 
 `@abijith-suresh/runnel` provides the `runnel` executable for named MongoDB access.
-A human registers credentials through `setup`; agents query database aliases.
+A human registers credentials through `setup`; agents select physical databases or optional aliases.
 The CLI requires Node `>=24.19.0 <25`. For a local installation, follow the
 [local testing guide](../../CONTRIBUTING.md#local-testing).
 
 ```sh
-runnel setup
+runnel setup --env local
 runnel envs
 runnel databases -e local
 runnel list -e local -d accounts
@@ -35,9 +35,33 @@ starting with a dash. Short options accept `-e local` or `-elocal`; use
 ## Choosing a database
 
 `envs`, `connections -e <environment>`, and `databases -e <environment>` read
-configured names without querying MongoDB or reading credentials. Connection
-output omits secret references. Every database operation requires an explicit
-`-e`/`--env`. Omit `-d`/`--db` only when that environment has exactly one alias.
+configuration without querying MongoDB or reading credentials. They report the
+default connection and its URI database when configured. `databases` lists
+optional aliases, not an inventory of accessible physical databases; an empty
+list does not mean you lack access. Connection output omits secret references.
+Every database operation requires an explicit `-e`/`--env`.
+
+With a default connection, `-d`/`--db` can name any valid physical database, without
+prior enumeration or alias registration. A matching alias keeps its original
+mapping, even if it points at another connection. Use `--connection NAME` to
+select a physical database explicitly and bypass aliases with the same name.
+This also selects a connection in environments that have several registrations.
+Runnel never guesses between connections or checks a read/write approval policy.
+MongoDB's database-user permissions decide whether the operation succeeds.
+
+If `-d` is omitted, Runnel first uses the selected default connection's URI
+path database, then the environment's sole alias. `authSource` is only an
+authentication option and never supplies a target. Without either unambiguous
+choice, supply `-d`. With `--connection NAME`, omission uses only that connection's
+URI database and otherwise fails. Legacy environments retain alias-only selection
+until a default is explicitly configured; `--connection` permits physical selection
+without changing their default.
+
+```sh
+runnel list -e local -d physical_database
+runnel find users -e local --connection reporting -d physical_database --limit 10
+runnel connection default primary -e local
+```
 
 `list` queries the selected database for collection names and types, returning
 at most 1,000 collections with a `truncated` flag. Database operations start a
@@ -73,39 +97,45 @@ See [the architecture section](../../README.md#architecture) for its schema.
 
 ## Registering a connection
 
-Run `runnel setup` in an interactive terminal. Choose an environment and a new
-connection name, then enter the MongoDB URI at the hidden prompt. The worker lists
-accessible databases. Choose a listed number or enter a physical database name,
-then name its alias. Repeat for more aliases, leave the database selection blank,
-and confirm saving. Use `m` for manual entry when the physical name is a number
-or the literal `m`. At least one alias is required.
+Run `runnel setup --env local` in an interactive terminal and enter the URI at
+the single hidden prompt. Bare `runnel setup` asks for the environment first.
+Setup creates an internal `primary` connection, selects it as the environment's
+default, and saves no aliases. There is no database discovery, selection, naming,
+or confirmation wizard. Saving validates URI syntax and names locally, stores the
+URI in native OS storage, and commits the registration atomically. It does not
+verify reachability, authentication, or database access and does not start a daemon.
+`--test` explicitly requests a bounded worker-owned ping before saving, without
+listing databases. A failed or cancelled test leaves no registration.
 
-Setup permits manual names when discovery returns no databases or the database
-user lacks listing permission. It does not verify access to manually entered
-names. Authentication and connectivity failures stop setup. Configured names are
-never overwritten; use a new connection and new aliases for another registration.
+For an advanced additional connection use `runnel setup --env local --connection
+reporting`, optionally with `--default` to select it as default. Existing
+connections cannot be overwritten through setup. To replace missing or rejected
+credentials, use `runnel connections -e local`, then `runnel connection rotate
+primary -e local`. Rotation updates the existing registration and preserves its
+aliases and default selection. Do not retry setup with the same name to recover.
 The same URI registered elsewhere gets a separate credential entry.
 
-Prompts go to stderr; the final result is a JSON envelope on stdout. Ctrl+C, EOF,
-or declining the save cancels before registration. Credentials cannot be supplied
-through CLI flags or piped stdin. Setup input is limited to 16 KiB per answer.
-Linux requires an unlocked Secret Service store, such as GNOME Keyring, and a
-session D-Bus connection. Windows uses native credential storage through the same
-binding; native Windows setup has not yet been tested. Discovery can start the
-daemon even if setup is later cancelled; `runnel daemon stop` stops it explicitly.
+Prompts go to stderr; the final result is a JSON envelope on stdout. Ctrl+C or EOF
+cancels before registration. Credentials cannot be supplied through CLI flags or
+piped stdin. Setup input is limited to 16 KiB per answer. Linux requires an
+unlocked Secret Service store and a session D-Bus connection. Windows uses native
+credential storage; native Windows interactive setup still needs manual testing.
+An explicit `--test` may start the daemon; `runnel daemon stop` stops it.
 
 ## Managing registrations
 
 Change an existing connection's credentials with `runnel connection rotate primary
 -e local`. A human enters the replacement URI in a hidden interactive terminal
-prompt. Runnel checks the connection, preserves aliases, commits a new credential
+prompt. Runnel checks the connection with a bounded ping, preserves aliases and the default
+connection selection, updates the URI database metadata, commits a new credential
 reference, then removes the old credential when no registration references it.
 A concurrent connection change rejects the rotation instead of overwriting it.
 If old-credential cleanup fails after the commit, the result stays successful
 with a `SecretCleanupFailed` warning. A later operation reads the new credential;
 the worker replaces the old connection pool when the URI changes. Already active
 work keeps acquired handles and credentials until it finishes. Each operation
-uses one catalog snapshot, including aliases first visited by a later `connect()`.
+uses one catalog snapshot, including default selection, URI database metadata and
+aliases first visited by a later `connect()`.
 Catalog edits become visible on the next operation. A concurrent mapping change
 during credential recovery can return `TargetChanged`; inspect possible writes
 before starting another operation. Runnel never replays database work.
@@ -123,6 +153,8 @@ physical databases, and adding an alias does not verify access to that database.
 Existing aliases cannot be overwritten. Remove all aliases referring to a
 connection before `runnel connection remove primary -e local`. Connection removal
 deletes the registration and removes its obsolete credential from OS storage.
+Removing the default clears that selection; another connection is never promoted
+automatically. Use `connection default NAME -e ENV` to select a replacement.
 An empty environment remains available for later setup.
 
 ## Querying a named database
@@ -250,7 +282,8 @@ to the daemon. It retains the latest 1,000 entries in a private file below the
 catalog directory, with a 1 MiB file cap. Each entry contains configured environment,
 database alias and connection names when resolved, the operation, its UTC start
 time, elapsed milliseconds, and a sanitized success/error outcome. Duration includes
-queue waiting. It omits collection names, filters, arguments, scripts, returned
+queue waiting. Physical target names and URI database defaults are omitted unless
+they identify a configured alias. It omits collection names, filters, arguments, scripts, returned
 documents, credentials, physical database names, and driver error messages.
 
 Set `settings.historyEnabled` to `false` in `catalog.json` to disable recording

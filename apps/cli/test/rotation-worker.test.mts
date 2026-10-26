@@ -49,7 +49,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }) {
       { env: "local", connection: "primary" },
       {
         color: false,
-        ask: async () => "new-uri",
+        ask: async () => "mongodb://new-uri.invalid",
         write() {},
         progress: (_label, action) => action(new AbortController().signal),
       },
@@ -95,7 +95,7 @@ test("a catalog reference retired during credential read resolves the current re
     assert.equal(f.values.has("old"), false);
     resume.release();
     assert.equal((await pending).ok, true);
-    assert.deepEqual(acquired, ["new-uri"]);
+    assert.deepEqual(acquired, ["mongodb://new-uri.invalid"]);
   } finally {
     resume.release();
     await pending;
@@ -170,7 +170,7 @@ test("an active script pins its credentials while future operations refresh the 
     assert.equal(next.data.count, 2);
     assert.equal(clients.length, 2);
     assert.equal(clients[0]?.closed, true);
-    assert.equal(clients[1]?.uri, "new-uri");
+    assert.equal(clients[1]?.uri, "mongodb://new-uri.invalid");
   } finally {
     resume.release();
     await pending;

@@ -18,11 +18,11 @@ Usage:
   runnel help [<command> [<action>]]
   runnel ${guideUsage}
   runnel skill [print | path]
-  runnel setup
+  runnel setup [--env <environment>] [--test]
   runnel envs
   runnel connections -e <environment>
   runnel databases -e <environment>
-  runnel connection rotate | remove <name> -e <environment>
+  runnel connection rotate | remove | default <name> -e <environment>
   runnel database add <alias> -e <environment> --connection <name> --database <physical-name>
   runnel database rename <alias> -e <environment> --to <new-alias>
   runnel database remove <alias> -e <environment>
@@ -40,7 +40,8 @@ Options:
   -h, --help     Show this help
   -v, --version  Print the package version
   -e, --env      Select an environment
-  -d, --db       Select a database alias; inferred only when there is one
+  -d, --db       Select a physical database or optional alias
+  --connection  Select a connection and use physical database names
 
 Query options:
   --filter, --filter-file          JSON/EJSON filter; file - reads stdin
@@ -65,7 +66,7 @@ Exports save bounded JSON/EJSON arrays to new files with --output.
 
 const optionHelp = {
   env: "-e, --env <environment>      Required environment name",
-  db: "-d, --db <database>          Alias; inferred only when there is one",
+  db: "-d, --db <database>          Physical database or optional alias",
   filter: "--filter <json>              JSON/EJSON filter",
   "filter-file": "--filter-file <file>         Filter file; - reads stdin",
   projection: "--projection <json>          JSON/EJSON projection",
@@ -81,7 +82,9 @@ const optionHelp = {
   args: "--args <json>               Plain JSON arguments, default {}",
   "args-file": "--args-file <file>          Arguments file; - reads stdin",
   timeout: "--timeout <duration>        One integer/unit: 1500ms, 30s, 5m, 1h; 0 disables it",
-  connection: "--connection <name>        Existing connection for a new alias",
+  connection: "--connection <name>        Select a connection; query databases are physical names",
+  default: "--default                  Make an advanced setup connection the environment default",
+  test: "--test                     Test connectivity with a bounded ping before saving",
   database: "--database <physical-name> Physical MongoDB database name; access is not checked",
   to: "--to <new-alias>           New alias for rename",
 } as const;
@@ -94,7 +97,7 @@ type CommandDefinition = {
   operand?: "collection" | "script" | "connection name" | "database alias";
   defaultAction?: boolean;
 };
-const targetOptions = ["env", "db"] as const;
+const targetOptions = ["env", "db", "connection"] as const;
 const filterOptions = ["filter", "filter-file"] as const;
 const findOptions = [
   ...targetOptions,
@@ -115,14 +118,17 @@ const commands: Record<string, CommandDefinition> = {
     defaultAction: true,
   },
   skill: { usage: "skill [print | path]", actions: ["print", "path"], defaultAction: true },
-  setup: { usage: "setup" },
+  setup: {
+    usage: "setup [--env <environment>] [--connection <name>] [--default] [--test]",
+    options: ["env", "connection", "default", "test"],
+  },
   envs: { usage: "envs" },
   connections: { usage: "connections -e <environment>", options: ["env"] },
   databases: { usage: "databases -e <environment>", options: ["env"] },
   connection: {
-    usage: "connection rotate | remove <name> -e <environment>",
+    usage: "connection rotate | remove | default <name> -e <environment>",
     options: ["env"],
-    actions: ["rotate", "remove"],
+    actions: ["rotate", "remove", "default"],
     operand: "connection name",
   },
   database: {
@@ -173,6 +179,8 @@ const options: NonNullable<ParseArgsConfig["options"]> = {
   version: { type: "boolean", short: "v" },
   env: { type: "string", short: "e" },
   db: { type: "string", short: "d" },
+  default: { type: "boolean" },
+  test: { type: "boolean" },
 } as const;
 
 function supportsOption(
@@ -199,14 +207,22 @@ function commandHelp(command: string, definition: CommandDefinition, action?: st
       ? Object.values(definition.actionOptions ?? {}).flat()
       : (definition.actionOptions?.[action] ?? [])),
   ];
-  for (const key of supported) options.push(optionHelp[key]);
+  for (const key of supported)
+    options.push(
+      command === "setup" && key === "env"
+        ? "-e, --env <environment>      Environment name; prompted when omitted"
+        : command === "setup" && key === "connection"
+          ? "--connection <name>        Optional name for an additional connection"
+          : optionHelp[key]
+    );
   if (command === "run")
     options.push("                           For 2m30s use 150s; catalog default is 5m");
   if (command === "connection")
     options.push(
       "rotate                     Hidden interactive URI replacement; preserves aliases",
       "remove                     Remove an unused registration and its stored credential",
-      "Remove database aliases first. These commands do not drop MongoDB data."
+      "default                    Select the default connection for physical database names",
+      "Remove database aliases before connection removal. These commands do not drop MongoDB data."
     );
   if (command === "database")
     options.push(
@@ -218,7 +234,7 @@ function commandHelp(command: string, definition: CommandDefinition, action?: st
       : ["find", "aggregate", "export"].includes(command)
         ? "\nResults are bounded to 1000 documents and 512 KiB. Check data.truncated and\ndata.truncationReason before treating them as complete. Export is not a backup.\n"
         : command === "setup"
-          ? "\nA human must run setup with interactive stdin and stderr terminals.\nCredentials are entered through a hidden prompt, never arguments or piped input.\n"
+          ? "\nA human must run setup with interactive stdin and stderr terminals.\nCredentials are entered through a hidden prompt, never arguments or piped input.\nSave an environment and URI with no database listing, alias or label questions.\n--test explicitly runs a bounded ping. Saving alone does not verify access.\n"
           : "";
   const usage =
     command === "connection" && action !== undefined
@@ -276,6 +292,8 @@ async function main(): Promise<number> {
       connection?: string;
       database?: string;
       to?: string;
+      default?: boolean;
+      test?: boolean;
     };
   const wantsHelp = helpCommand || values.help;
   const choices = definition?.actions;
@@ -348,7 +366,9 @@ async function main(): Promise<number> {
           result =
             positionals[1] === "rotate"
               ? await management.rotateConnection(directory, input)
-              : await management.removeConnection(directory, input);
+              : positionals[1] === "default"
+                ? await management.defaultConnection(directory, input)
+                : await management.removeConnection(directory, input);
         } else {
           const input = { env, alias: name };
           result =
@@ -440,7 +460,17 @@ async function main(): Promise<number> {
     ]);
     let result: SetupResult;
     try {
-      result = await setup(catalogDirectory());
+      result = await setup(
+        catalogDirectory(),
+        undefined,
+        {},
+        {
+          ...(values.env === undefined ? {} : { env: values.env }),
+          ...(values.connection === undefined ? {} : { connection: values.connection }),
+          ...(values.default === undefined ? {} : { makeDefault: values.default }),
+          ...(values.test === undefined ? {} : { test: values.test }),
+        }
+      );
     } catch {
       result = {
         ok: false,
@@ -478,6 +508,7 @@ async function main(): Promise<number> {
           operation: "list",
           env: values.env,
           ...(values.db === undefined ? {} : { db: values.db }),
+          ...(values.connection === undefined ? {} : { connection: values.connection }),
         });
       } else {
         const { runQueryCommand } = await import("./query-command.js");

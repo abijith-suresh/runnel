@@ -78,3 +78,88 @@ test("matches names exactly and does not treat empty values as omitted", () => {
     );
   }
 });
+
+// Registration-aware selection preserves the legacy resolver above as a public API.
+test("default connections select physical databases while aliases retain precedence", async () => {
+  const { resolveConnectionTarget } = await import("../dist/index.js");
+  const available = new Map([
+    [
+      "local",
+      {
+        defaultConnection: "primary",
+        connections: new Map([
+          ["primary", { defaultDatabase: "uri_database" }],
+          ["other", { defaultDatabase: "other_database" }],
+        ]),
+        databases: new Map([["accounts", { connection: "other", database: "physical_accounts" }]]),
+      },
+    ],
+  ]);
+  for (const [requested, expected] of [
+    [
+      { env: "local" },
+      { env: "local", db: "uri_database", connection: "primary", database: "uri_database" },
+    ],
+    [
+      { env: "local", db: "new_database" },
+      { env: "local", db: "new_database", connection: "primary", database: "new_database" },
+    ],
+    [
+      { env: "local", db: "accounts" },
+      { env: "local", db: "accounts", connection: "other", database: "physical_accounts" },
+    ],
+    [
+      { env: "local", db: "accounts", connection: "primary" },
+      { env: "local", db: "accounts", connection: "primary", database: "accounts" },
+    ],
+    [
+      { env: "local", connection: "other" },
+      { env: "local", db: "other_database", connection: "other", database: "other_database" },
+    ],
+  ] as const) {
+    assert.deepEqual(resolveConnectionTarget(available, requested), Result.succeed(expected));
+  }
+});
+
+test("legacy alias inference stays intact and physical selection never guesses a connection", async () => {
+  const { resolveConnectionTarget } = await import("../dist/index.js");
+  const available = new Map([
+    [
+      "local",
+      {
+        connections: new Map([
+          ["primary", {}],
+          ["other", {}],
+        ]),
+        databases: new Map([
+          ["accounts", { connection: "primary", database: "physical_accounts" }],
+        ]),
+      },
+    ],
+  ]);
+  assert.deepEqual(
+    resolveConnectionTarget(available, { env: "local" }),
+    Result.succeed({
+      env: "local",
+      db: "accounts",
+      connection: "primary",
+      database: "physical_accounts",
+    })
+  );
+  assert.deepEqual(
+    resolveConnectionTarget(available, { env: "local", db: "unregistered" }),
+    Result.fail({ _tag: "DatabaseNotFound", env: "local", db: "unregistered" })
+  );
+  assert.deepEqual(
+    resolveConnectionTarget(available, { env: "local", connection: "primary" }),
+    Result.fail({ _tag: "DatabaseRequired", env: "local" })
+  );
+  assert.deepEqual(
+    resolveConnectionTarget(available, { env: "local", connection: "missing", db: "accounts" }),
+    Result.fail({ _tag: "ConnectionNotFound", env: "local" })
+  );
+  assert.deepEqual(
+    resolveConnectionTarget(available, { db: "accounts" }),
+    Result.fail({ _tag: "EnvironmentRequired" })
+  );
+});
