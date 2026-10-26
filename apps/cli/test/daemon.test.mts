@@ -261,3 +261,31 @@ test("incompatible daemon versions refuse database work while lifecycle commands
     await cleanup();
   }
 });
+
+test("disconnecting explicit inspection cancels the worker without replay", {
+  timeout: 5000,
+}, async () => {
+  const { directory, cleanup } = await fixture();
+  const daemon = await startDaemon(directory, { workerEntrypoint });
+  try {
+    const controller = new AbortController();
+    const pending = executeWithDaemon(
+      directory,
+      { operation: "inspectConnection", env: "hang", connection: "primary" },
+      controller.signal
+    );
+    const deadline = Date.now() + 2000;
+    while (!status(await daemonCommand(directory, "status")).worker.active && Date.now() < deadline)
+      await delay(10);
+    assert(status(await daemonCommand(directory, "status")).worker.active);
+    const pid = status(await daemonCommand(directory, "status")).worker.pid;
+    controller.abort();
+    assert.equal(errorCode(await pending), "OperationCancelled");
+    const next = await executeWithDaemon(directory, { operation: "list", env: "fresh" });
+    assert(next.ok);
+    assert.notEqual(status(await daemonCommand(directory, "status")).worker.pid, pid);
+  } finally {
+    await daemon.stop();
+    await cleanup();
+  }
+});

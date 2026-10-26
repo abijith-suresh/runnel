@@ -47,6 +47,48 @@ jobs:
       - name: Check native credential persistence and cleanup
         run: npm run check:native-credentials
 
+  installed-browser:
+    name: Installed browser (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install pinned npm and dependencies
+        run: |
+          npm install --global npm@11.16.0
+          npm ci --ignore-scripts
+      - name: Install owned browser runtime
+        run: npm exec -- playwright install --with-deps chromium
+      - name: Exercise installed browser, HTTP and process lifecycle
+        env:
+          RUNNEL_UI_EVIDENCE: ui-measurements.json
+          RUNNEL_UI_SCREENSHOT: ui-installed.png
+        run: npm run test:ui
+      - name: Retain measurements and browser image
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installed-ui-${{ matrix.os }}
+          path: |
+            ui-measurements.json
+            ui-installed*.png
+          if-no-files-found: ignore
+
   pr-title:
     name: PR title
     if: github.event_name == 'pull_request'
@@ -83,7 +125,7 @@ jobs:
   baseline-verified:
     name: Baseline verified
     if: always()
-    needs: [npm-quality, windows-quality, pr-title, changeset-policy]
+    needs: [npm-quality, windows-quality, installed-browser, pr-title, changeset-policy]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -92,12 +134,14 @@ jobs:
           EVENT: ${{ github.event_name }}
           QUALITY: ${{ needs.npm-quality.result }}
           WINDOWS: ${{ needs.windows-quality.result }}
+          BROWSER: ${{ needs.installed-browser.result }}
           TITLE: ${{ needs.pr-title.result }}
           POLICY: ${{ needs.changeset-policy.result }}
         run: |
           set -euo pipefail
           test "$QUALITY" = success
           test "$WINDOWS" = success
+          test "$BROWSER" = success
           if [[ "$EVENT" == pull_request ]]; then
             test "$TITLE" = success
             test "$POLICY" = success

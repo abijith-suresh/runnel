@@ -116,7 +116,8 @@ export function connectionDatabase(uri: string): Effect.Effect<string | undefine
 export function registerConnection(
   directory: string,
   input: Registration,
-  secrets = credentialStore()
+  secrets = credentialStore(),
+  expectedRevision?: string
 ) {
   return Effect.gen(function* () {
     if (
@@ -141,8 +142,10 @@ export function registerConnection(
     );
     yield* decodeCatalog(proposed);
     return yield* secrets.withStored(input.uri, (reference) =>
-      updateCatalog(directory, (current) =>
-        addRegistration(current, input, reference, defaultDatabase)
+      updateCatalog(
+        directory,
+        (current) => addRegistration(current, input, reference, defaultDatabase),
+        expectedRevision
       ).pipe(
         Effect.map(() => ({
           env: input.env,
@@ -158,7 +161,8 @@ export function registerConnection(
 export function registerEnvironment(
   directory: string,
   input: { readonly env: string; readonly uri: string },
-  secrets = credentialStore()
+  secrets = credentialStore(),
+  expectedRevision?: string
 ) {
   return registerConnection(
     directory,
@@ -169,7 +173,8 @@ export function registerEnvironment(
       makeDefault: true,
       requireEmptyEnvironment: true,
     },
-    secrets
+    secrets,
+    expectedRevision
   );
 }
 

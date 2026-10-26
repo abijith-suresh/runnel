@@ -47,41 +47,46 @@ export function getSettings(directory: string) {
 }
 
 /** Merge only validated fields inside the existing catalog transaction. */
-export function setSettings(directory: string, input: unknown) {
+export function setSettings(directory: string, input: unknown, expectedRevision?: string) {
   return Effect.gen(function* () {
     const patch = yield* Schema.decodeUnknownEffect(patchSchema, { onExcessProperty: "error" })(
       input
     ).pipe(Effect.mapError(invalid));
     if (Object.keys(patch).length === 0) return yield* Effect.fail(invalid());
-    const catalog = yield* updateCatalog(directory, (current) =>
-      Effect.succeed({
-        ...current,
-        settings: { ...current.settings, ...patch },
-      })
+    const catalog = yield* updateCatalog(
+      directory,
+      (current) =>
+        Effect.succeed({
+          ...current,
+          settings: { ...current.settings, ...patch },
+        }),
+      expectedRevision
     );
     return settingsView(catalog);
   });
 }
 
 /** A whitelisted management DTO. No stored URI, reference, token or credential status. */
+export function configurationView(catalog: Catalog) {
+  return {
+    schemaVersion: catalog.schemaVersion,
+    ...settingsView(catalog),
+    environments: Object.keys(catalog.environments)
+      .sort()
+      .map((name) => {
+        const env = catalog.environments[name]!;
+        return {
+          name,
+          ...(env.defaultConnection === undefined
+            ? {}
+            : { defaultConnection: env.defaultConnection }),
+          connections: describeConnections(env),
+          databases: describeDatabases(env),
+        };
+      }),
+  };
+}
+
 export function getConfiguration(directory: string) {
-  return readCatalog(directory).pipe(
-    Effect.map((catalog) => ({
-      schemaVersion: catalog.schemaVersion,
-      ...settingsView(catalog),
-      environments: Object.keys(catalog.environments)
-        .sort()
-        .map((name) => {
-          const env = catalog.environments[name]!;
-          return {
-            name,
-            ...(env.defaultConnection === undefined
-              ? {}
-              : { defaultConnection: env.defaultConnection }),
-            connections: describeConnections(env),
-            databases: describeDatabases(env),
-          };
-        }),
-    }))
-  );
+  return readCatalog(directory).pipe(Effect.map(configurationView));
 }

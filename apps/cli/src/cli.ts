@@ -20,6 +20,7 @@ Usage:
   runnel skill [print | path]
   runnel setup [--env <environment>] [--test]
   runnel config
+  runnel ui [--open]
   runnel settings [get | set --idle-timeout-ms <n> --script-timeout-ms <n> --history-enabled true|false]
   runnel envs
   runnel connections -e <environment>
@@ -67,6 +68,7 @@ Exports save bounded JSON/EJSON arrays to new files with --output.
 `;
 
 const optionHelp = {
+  open: "--open                    Explicitly open the browser pairing link",
   env: "-e, --env <environment>      Required environment name",
   db: "-d, --db <database>          Physical database or optional alias",
   filter: "--filter <json>              JSON/EJSON filter",
@@ -131,6 +133,7 @@ const commands: Record<string, CommandDefinition> = {
     options: ["env", "connection", "default", "test"],
   },
   config: { usage: "config" },
+  ui: { usage: "ui [--open]", options: ["open"] },
   settings: {
     usage:
       "settings [get | set --idle-timeout-ms <n> --script-timeout-ms <n> --history-enabled true|false]",
@@ -197,6 +200,7 @@ const options: NonNullable<ParseArgsConfig["options"]> = {
   db: { type: "string", short: "d" },
   default: { type: "boolean" },
   test: { type: "boolean" },
+  open: { type: "boolean" },
 } as const;
 
 function supportsOption(
@@ -245,6 +249,12 @@ function commandHelp(command: string, definition: CommandDefinition, action?: st
   if (command === "database")
     options.push(
       "Only catalog aliases change. MongoDB databases and collections are not modified."
+    );
+  if (command === "ui")
+    options.push(
+      "Explicit foreground loopback manager; no database access on open or save.",
+      "Browser opening is opt-in. Pairing expires after 60s; sessions after 15m.",
+      "Stop manager and Stop database daemon are separate. Idle manager closes after 30m."
     );
   if (command === "settings")
     options.push(
@@ -318,6 +328,7 @@ async function main(): Promise<number> {
       to?: string;
       default?: boolean;
       test?: boolean;
+      open?: boolean;
       "idle-timeout-ms"?: string;
       "script-timeout-ms"?: string;
       "history-enabled"?: string;
@@ -370,6 +381,11 @@ async function main(): Promise<number> {
       );
       return 1;
     }
+  }
+  if (command === "ui") {
+    const { catalogDirectory } = await import("./catalog.js");
+    const { runManager } = await import("./ui.js");
+    return runManager(catalogDirectory(), values.open);
   }
   if (command === "settings" || command === "config") {
     const [Effect, Result, { catalogDirectory }, settings] = await Promise.all([

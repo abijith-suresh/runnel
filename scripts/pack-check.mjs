@@ -62,6 +62,15 @@ try {
     if (manifest.bin) {
       assert(files.has("skills/runnel/SKILL.md"), "CLI agent skill must be packed");
       assert(files.has("dist/agent-help.js"), "CLI offline guide accessor must be packed");
+      assert(files.has("dist/ui/index.html"), "CLI static manager document must be packed");
+      assert(
+        [...files].some((file) => /^dist\/ui\/assets\/.+\.js$/.test(file)),
+        "CLI compiled browser bundle must be packed"
+      );
+      assert(
+        [...files].some((file) => /^dist\/ui\/assets\/.+\.woff2$/.test(file)),
+        "CLI manager fonts must be bundled offline"
+      );
       assert(
         readFileSync(resolve(pkg.directory, manifest.bin.runnel), "utf8").startsWith(
           "#!/usr/bin/env node\n"
@@ -98,6 +107,15 @@ try {
     cwd: consumer,
     stdio: "inherit",
     timeout: 30000,
+  });
+  const uiFixture = join(consumer, "installed-ui-fixture.mjs");
+  writeFileSync(uiFixture, readFileSync(new URL("./installed-ui-fixture.mjs", import.meta.url)));
+  execFileSync(process.execPath, [uiFixture], {
+    cwd: consumer,
+    stdio: "inherit",
+    timeout: 45000,
+    windowsHide: true,
+    env: { ...process.env, RUNNEL_HOME: join(consumer, "fake-ui-catalog") },
   });
   const offline = (args) =>
     spawnSync(process.execPath, [executable, ...args], {

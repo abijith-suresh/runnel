@@ -128,7 +128,7 @@ to take effect before its normal idle exit. Settings/config/status inspection
 never resets the idle timer or keeps pools alive. Settings writes do not stop or
 restart an existing daemon and do not interrupt current work.
 
-The CLI and a future human UI use these same validated application operations
+The CLI and bundled human UI use these same validated application operations
 inside the installed package. Ordinary registration and credential replacement
 also have prompt-independent operations with redacted results. Terminal rotation
 uses the same replacement transaction and pins its connection snapshot before
@@ -401,3 +401,74 @@ The [local testing guide](../../CONTRIBUTING.md#local-testing) covers persistent
 tarball installation, manual setup, and optional MongoDB integration checks.
 `npm run pack:check` validates tarball installs in a temporary consumer without
 global installation or publication. This package has not been published.
+
+## Local human manager
+
+```sh
+runnel ui
+runnel ui --open
+```
+
+`ui` runs in the foreground on an OS-assigned IPv4 loopback port. It starts only
+when requested. Browser opening requires `--open`; otherwise use the printed link.
+No OS-login service, detached UI, frontend dev server or runtime frontend build
+is installed. All Solid/Vite JavaScript, CSS and fonts ship inside the CLI tarball.
+
+A link pairs one browser once within 60 seconds. Its random code is in the URL
+fragment, which the page removes before making requests. Pairing creates an
+independent 15-minute session held only in browser memory. Refreshing or reopening
+the page requires a fresh link. Press Enter in the foreground terminal to issue
+one. Earlier unused links are invalidated. Sessions do not renew on polling.
+No cookies, browser storage, query-string secrets, remote assets or telemetry are
+used. Treat the terminal pairing link as a temporary secret.
+
+The HTTP listener accepts only its exact `127.0.0.1:port` Host and matching Origin.
+Authenticated reads can omit Origin for local HTTP clients; mutations require it.
+Every API operation requires the paired bearer session. Requests have strict
+method/path/schema/body/header/concurrency bounds. There is no CORS allowance;
+the page uses a restrictive content security policy. This is local-user session
+isolation, not protection against malware already running as your OS user.
+
+Connections needs only an environment name and hidden MongoDB URI to save. Save
+is offline and atomic through the same vault/catalog transaction as terminal
+setup. Additional connection names, defaults and database aliases are optional.
+Registration and refresh never test or enumerate databases. Stored URIs and
+secret references never appear in responses. Entered URIs are cleared on submit,
+cancel, navigation and session expiry; they are sent only in the bounded
+loopback JSON request body to the explicitly paired manager, then stored in the
+native OS vault. They do not enter URLs, logs, browser storage or error responses.
+
+Test connection and Discover databases explicitly use the registered worker
+target with existing operation deadlines and database-user permissions. Discovery
+is bounded to 1,000 names and may be denied even when other operations are allowed.
+No list permission is needed to save or use a known physical database. Replace
+credential explicitly validates the new URI with a bounded live ping before the
+atomic replacement. A denied ping alone does not reject valid credentials;
+authentication failures do. Runnel adds no read/write approval gate.
+
+The page manages settings with the same bounds and application timing listed
+above. It shows daemon and worker state and offers two separate stops. Stop
+manager or Ctrl+C revokes sessions, closes the HTTP listener, and cancels active
+validation/inspection. An already-started vault/catalog transaction finishes
+before the manager exits. Stop database daemon interrupts active and queued
+database work without replay and leaves the manager available. Metadata/status
+polling reads no vault, starts no daemon/worker and holds no pools alive.
+
+The manager's own idle timeout is 30 minutes after pairing or a human management
+action. Configuration/status reads do not extend it. The database daemon retains
+its separate five-minute default idle shutdown. A foreground manager alone uses
+one backend process; explicit database work adds the existing daemon and worker.
+The browser's own process count depends on its browser and installation.
+
+Client disconnects cancel pre-commit validation; atomic credential/catalog commits
+can complete after a response is lost. The page never retries mutations. Refresh
+to inspect the saved state before retrying explicitly. Concurrent browser/CLI
+changes are checked against an opaque catalog revision inside the existing write
+lock, including credential-reference changes. A stale form receives a refresh
+error rather than overwriting newer state.
+
+Worker cancellation currently uses the existing supervisor's SIGTERM with a
+forced fallback. On Windows this is forced process termination, not proof that
+the driver's graceful close ran. Normal pool ownership and no-replay rules still
+apply. A cross-platform graceful worker shutdown protocol and managed-laptop
+interactive checks remain follow-up work. There is no browser query or script editor.

@@ -122,7 +122,7 @@ export async function startDaemon(directory: string, options: { workerEntrypoint
                 typeof command.request === "object" &&
                 command.request !== null &&
                 "operation" in command.request &&
-                command.request.operation === "run"
+                ["run", "inspect", "inspectConnection"].includes(String(command.request.operation))
               )
                 socket.once("close", disconnected);
               if (socket.destroyed) controller.abort();

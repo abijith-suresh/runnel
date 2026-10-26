@@ -13,7 +13,7 @@
     "apps/cli"
   ],
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build && npm run build:ui --workspace @abijith-suresh/runnel",
     "clean": "node scripts/clean.mjs",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "biome lint .",
@@ -32,10 +32,11 @@
     "check:native-credentials": "npm run build && node scripts/check-native-credentials.mjs",
     "check:mongodb": "npm run build && node scripts/pack-check.mjs --mongodb",
     "install:local": "npm run build && node scripts/local-install.mjs",
-    "check:mongodb-auth": "npm run build && node scripts/check-auth-mongodb.mjs"
+    "check:mongodb-auth": "npm run build && node scripts/check-auth-mongodb.mjs",
+    "test:ui": "npm run build && node scripts/ui-browser-check.mjs"
   },
   "lint-staged": {
-    "*.{js,mjs,cjs,ts,json,jsonc}": "biome check --write --no-errors-on-unmatched"
+    "*.{js,mjs,cjs,ts,tsx,css,html,json,jsonc}": "biome check --write --no-errors-on-unmatched"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
@@ -43,10 +44,16 @@
     "@changesets/parse": "1.0.0",
     "@commitlint/cli": "21.2.3",
     "@commitlint/config-conventional": "21.2.3",
+    "@fontsource-variable/manrope": "5.3.0",
+    "@fontsource-variable/newsreader": "5.3.0",
+    "@playwright/test": "1.64.1",
     "@types/node": "24.19.1",
     "@types/proper-lockfile": "4.1.4",
     "husky": "9.1.7",
     "lint-staged": "17.6.0",
-    "typescript": "7.0.2"
+    "solid-js": "1.9.17",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vite-plugin-solid": "2.11.14"
   }
 }
