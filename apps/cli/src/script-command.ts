@@ -9,7 +9,7 @@ import { prepareScript, type ScriptOperation } from "./script-runner.js";
 import { decodeOperation, failure, scriptMaximumTimeoutMs } from "./worker-protocol.js";
 
 export type ScriptValues = Partial<
-  Record<"env" | "db" | "format" | "args" | "args-file" | "timeout", string>
+  Record<"env" | "db" | "connection" | "format" | "args" | "args-file" | "timeout", string>
 >;
 
 /** Positive whole durations require a unit; zero explicitly disables the active deadline. */
@@ -42,6 +42,7 @@ export async function buildScriptRequest(
       path: resolve(entry),
       env: values.env,
       ...(values.db === undefined ? {} : { db: values.db }),
+      ...(values.connection === undefined ? {} : { connection: values.connection }),
       ...(values.format === undefined ? {} : { format: values.format }),
       timeoutMs: values.timeout === undefined ? defaultTimeoutMs : scriptTimeout(values.timeout),
       ...(values.args === undefined ? {} : { args: values.args }),

@@ -89,6 +89,16 @@ try {
   );
   assert.equal(imports.status, 0, imports.stderr);
   const executable = join(consumer, "node_modules/@abijith-suresh/runnel/dist/cli.js");
+  const setupFixture = join(consumer, "installed-setup-fixture.mjs");
+  writeFileSync(
+    setupFixture,
+    readFileSync(new URL("./installed-setup-fixture.mjs", import.meta.url))
+  );
+  execFileSync(process.execPath, [setupFixture], {
+    cwd: consumer,
+    stdio: "inherit",
+    timeout: 30000,
+  });
   const offline = (args) =>
     spawnSync(process.execPath, [executable, ...args], {
       cwd: temporary,

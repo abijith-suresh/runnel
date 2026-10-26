@@ -171,11 +171,12 @@ Register and query a target from an interactive terminal. Linux requires a
 session D-Bus connection and an unlocked Secret Service store, such as GNOME
 Keyring; native Windows uses Windows credential storage. `npm run
 check:native-credentials` tests the OS store with one synthetic entry and removes
-it afterward. `runnel setup` prompts for a hidden URI, lists accessible databases,
-and lets you choose and name aliases; each alias defaults to its database name
-when available. The catalog stores secret references, so connection strings stay
-in OS storage. Configured names are never overwritten; manual names are not
-verified against the database.
+it afterward. `runnel setup --env local` asks for one hidden URI and saves a
+default connection without listing databases or requiring aliases. `--test` opts
+into a bounded ping before saving. The catalog stores secret references, so
+connection strings stay in OS storage. Existing registrations are never
+overwritten by setup; recover missing credentials with `runnel connection rotate
+primary -e local`. Optional aliases can be added later with `database add`.
 
 ```sh
 runnel envs
@@ -191,8 +192,10 @@ runnel daemon stop
 ```
 
 Every database command requires `-e`; omit `-d` only when the environment has
-exactly one alias. Check the output's `ok` and `truncated` fields; a successful
-bounded export can still be incomplete. Exports need a new filename in an
+a default connection with a URI database, or exactly one legacy alias.
+Use `-d` for physical databases through the default connection; `--connection`
+selects an advanced connection and bypasses aliases. Check the output's `ok` and
+`truncated` fields; a successful bounded export can still be incomplete. Exports need a new filename in an
 existing directory. More options and script examples are in
 [CLI usage](apps/cli/README.md).
 

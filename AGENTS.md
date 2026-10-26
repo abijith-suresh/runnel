@@ -2,7 +2,7 @@
 Agent-first named database access for a CLI and MongoDB.
 
 ## The Project
-Core promise: A human registers a MongoDB connection and names its databases once in a user-wide catalog. An agent then works by name — `list`, `describe`, `find`, `count`, `aggregate`, `run`, `export` — and never handles a URI. A detached local worker owns every native client and pool, so credentials stay in OS storage and driver handles never cross IPC. Start with the CLI and MongoDB; MCP and other providers come later.
+Core promise: A human registers an environment and a hidden MongoDB URI once in a user-wide catalog. That environment has a default connection; an agent chooses a physical database at operation time, or uses the URI's default database. Optional aliases and advanced multiple connections remain supported. Agents use `list`, `describe`, `find`, `count`, `aggregate`, `run`, `export` and never handle a URI. A detached local worker owns every native client and pool, so credentials stay in OS storage and driver handles never cross IPC. Saving registration needs no database enumeration or live connection. Start with the CLI and MongoDB; MCP and other providers come later.
 
 Non-negotiables:
 - Database-user permissions are authoritative; Runnel adds no read/write approval gate.

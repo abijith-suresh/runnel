@@ -549,3 +549,65 @@ test("credential deletion holds the catalog writer lock through its reference ch
   await writer;
   assert.equal(writerEntered, true);
 });
+
+test("default selection validates connections and removal clears it without promoting another", async (t) => {
+  const { defaultConnection } = await import("../dist/management.js");
+  const { registerConnection } = await import("../dist/setup.js");
+  const f = fixture(t);
+  await f.seed(false);
+  failure(
+    await defaultConnection(f.directory, { env: "local", connection: "missing" }),
+    "ConnectionNotFound"
+  );
+  assert((await defaultConnection(f.directory, target)).ok);
+  await Effect.runPromise(
+    registerConnection(
+      f.directory,
+      {
+        env: "local",
+        connection: "other",
+        uri: "mongodb://synthetic.invalid",
+        aliases: [],
+      },
+      f.secrets
+    )
+  );
+  assert.equal((await f.catalog()).environments[envName]?.defaultConnection, "primary");
+  assert((await removeConnection(f.directory, target, f.secrets)).ok);
+  const env = (await f.catalog()).environments[envName];
+  assert.equal(env?.defaultConnection, undefined);
+  assert.deepEqual(Object.keys(env?.connections ?? {}), ["other"]);
+});
+
+test("rotation updates or clears URI database metadata and preserves default selection", async (t) => {
+  const { registerConnection } = await import("../dist/setup.js");
+  const f = fixture(t);
+  await Effect.runPromise(
+    registerConnection(
+      f.directory,
+      {
+        ...target,
+        uri: `${original}/old_database`,
+        makeDefault: true,
+        aliases: [],
+      },
+      f.secrets
+    )
+  );
+  for (const [uri, database] of [
+    [`${replacement}/new_database?authSource=auth`, "new_database"],
+    [replacement, undefined],
+  ] as const) {
+    assert(
+      (
+        await rotateConnection(f.directory, target, input(uri).prompt, {
+          secrets: f.secrets,
+          inspect,
+        })
+      ).ok
+    );
+    const env = (await f.catalog()).environments[envName];
+    assert.equal(env?.defaultConnection, "primary");
+    assert.equal(env?.connections[connectionName]?.defaultDatabase, database);
+  }
+});

@@ -144,3 +144,198 @@ test("cursor errors still close the cursor and never expose returned document co
     await cleanup();
   }
 });
+
+test("a default connection accepts physical databases and rejects invalid names before vault/pool access", async (t) => {
+  const { directory, cleanup } = await fixture();
+  t.after(cleanup);
+  const { updateCatalog } = await import("../dist/catalog-write.js");
+  await Effect.runPromise(
+    updateCatalog(directory, (catalog) => {
+      const env = catalog.environments["local"]!;
+      return Effect.succeed({
+        ...catalog,
+        environments: {
+          local: {
+            ...env,
+            defaultConnection: "primary",
+            connections: {
+              primary: { ...env.connections["primary"]!, defaultDatabase: "uri_default" },
+            },
+          },
+        },
+      });
+    })
+  );
+  const acquired: string[][] = [];
+  let reads = 0;
+  const operations = workerOperations(
+    directory,
+    {
+      database: async (...args) => {
+        acquired.push(args);
+        return {
+          listCollections: () => ({ async *[Symbol.asyncIterator]() {}, close: async () => {} }),
+        } as unknown as Db;
+      },
+      close: async () => {},
+    },
+    {
+      ...credentialStore(),
+      read: () => {
+        reads++;
+        return Effect.succeed("synthetic-uri");
+      },
+    }
+  );
+  t.after(() => operations.close());
+  for (const [target, db, physical] of [
+    [{}, "uri_default", "uri_default"],
+    [{ db: "unregistered" }, "unregistered", "unregistered"],
+    [{ db: "accounts" }, "accounts", "physical_accounts"],
+    [{ db: "accounts", connection: "primary" }, "accounts", "accounts"],
+    [{ db: "東京" }, "東京", "東京"],
+  ] as const) {
+    const result = await operations.execute({ operation: "list", env: "local", ...target });
+    assert(result.ok && "db" in result.data && result.data.db === db);
+    assert.equal(acquired.at(-1)?.[2], physical);
+    assert.equal(acquired.at(-1)?.[0], JSON.stringify(["local", "primary"]));
+  }
+  const before = reads;
+  for (const db of ["bad.name", "bad name", "x".repeat(64), "mongodb://private-value.invalid"]) {
+    const result = await operations.execute({ operation: "list", env: "local", db });
+    assert(!result.ok && result.error.code === "InputInvalid");
+    assert.doesNotMatch(JSON.stringify(result), /private-value/);
+  }
+  assert.equal(reads, before);
+});
+
+test("missing credentials recover by rotating the existing connection, preserving aliases and defaults", async (t) => {
+  const { registerConnection } = await import("../dist/setup.js");
+  const { rotateConnection } = await import("../dist/management.js");
+  const { readCatalog } = await import("../dist/catalog.js");
+  const directory = await mkdtemp(join(tmpdir(), "runnel-recovery-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const values = new Map<string, string>();
+  const secrets = credentialStore(async (id) => ({
+    getPassword: async () => values.get(id),
+    setPassword: async (value) => {
+      values.set(id, value);
+    },
+    deleteCredential: async () => values.delete(id),
+  }));
+  await Effect.runPromise(
+    registerConnection(
+      directory,
+      {
+        env: "local",
+        connection: "primary",
+        uri: "mongodb://old.invalid/accounts?authSource=admin",
+        makeDefault: true,
+        aliases: [{ name: "reporting", database: "reports" }],
+      },
+      secrets
+    )
+  );
+  const before = await Effect.runPromise(readCatalog(directory));
+  values.clear();
+  let calls = 0;
+  const operations = workerOperations(
+    directory,
+    {
+      database: async (_key, uri, database) => {
+        calls++;
+        assert.equal(uri, "mongodb://replacement.invalid/accounts?authSource=auth");
+        assert.equal(database, "accounts");
+        return {
+          listCollections: () => ({ async *[Symbol.asyncIterator]() {}, close: async () => {} }),
+        } as unknown as Db;
+      },
+      close: async () => {},
+    },
+    secrets
+  );
+  t.after(() => operations.close());
+  const missing = await operations.execute({ operation: "list", env: "local" });
+  assert(!missing.ok && missing.error.code === "SecretNotFound");
+  assert.match(missing.error.message, /connection rotate NAME -e ENV/);
+  assert.doesNotMatch(missing.error.message, /setup again/);
+  assert.equal(calls, 0);
+  const result = await rotateConnection(
+    directory,
+    { env: "local", connection: "primary" },
+    {
+      color: false,
+      ask: async (_label, options) => {
+        assert.equal(options?.hidden, true);
+        return "mongodb://replacement.invalid/accounts?authSource=auth";
+      },
+      write() {},
+      progress: (_label, action) => action(new AbortController().signal),
+    },
+    { secrets, inspect: async () => ({ ok: true }) }
+  );
+  assert(result.ok);
+  const after = await Effect.runPromise(readCatalog(directory));
+  assert.equal(after.environments["local"]?.defaultConnection, "primary");
+  assert.deepEqual(after.environments["local"]?.databases, before.environments["local"]?.databases);
+  assert.deepEqual(after.settings, before.settings);
+  assert.notEqual(
+    after.environments["local"]?.connections["primary"]?.secretRef,
+    before.environments["local"]?.connections["primary"]?.secretRef
+  );
+  assert((await operations.execute({ operation: "list", env: "local" })).ok);
+  assert.equal(calls, 1);
+});
+
+test("explicit connection testing uses a bounded isolated ping and never lists databases", async (t) => {
+  const { directory, cleanup } = await fixture();
+  t.after(cleanup);
+  let closed = 0;
+  let pings = 0;
+  const operations = workerOperations(
+    directory,
+    {
+      database: async () => {
+        throw new Error("Registered pools must stay untouched");
+      },
+      close: async () => {},
+    },
+    {
+      ...credentialStore(),
+      read: () => {
+        throw new Error("Must not read stored credentials");
+      },
+    },
+    () => ({
+      database: async (key, uri, database) => {
+        assert.equal(key, "setup");
+        assert.equal(uri, "mongodb://synthetic.invalid");
+        assert.equal(database, "admin");
+        return {
+          command: async (command: unknown, options: unknown) => {
+            pings++;
+            assert.deepEqual(command, { ping: 1 });
+            assert.deepEqual(options, { timeoutMS: 10000 });
+          },
+          admin: () => {
+            throw new Error("Must not enumerate");
+          },
+        } as unknown as Db;
+      },
+      close: async () => {
+        closed++;
+      },
+    })
+  );
+  t.after(() => operations.close());
+  assert.deepEqual(
+    await operations.execute({
+      operation: "inspect",
+      uri: "mongodb://synthetic.invalid",
+      testOnly: true,
+    }),
+    { ok: true, data: { databases: [], truncated: false } }
+  );
+  assert.equal(pings, 1);
+  assert.equal(closed, 1);
+});

@@ -19,6 +19,7 @@ export type QueryValues = Partial<
     | "skip"
     | "format"
     | "env"
+    | "connection"
     | "db",
     string
   >
@@ -73,6 +74,7 @@ export async function buildQueryRequest(
     collection,
     ...(values.env === undefined ? {} : { env: values.env }),
     ...(values.db === undefined ? {} : { db: values.db }),
+    ...(values.connection === undefined ? {} : { connection: values.connection }),
     ...(values.format === undefined ? {} : { format: values.format }),
     ...(limit === undefined ? {} : { limit }),
     ...(skip === undefined ? {} : { skip }),

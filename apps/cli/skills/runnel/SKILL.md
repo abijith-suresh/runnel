@@ -21,10 +21,20 @@ runnel databases -e local
 runnel list -e local -d accounts
 ```
 
-Use actual names from discovery in place of these examples. Every database
-operation requires an explicit `-e` or `--env`. Omit `-d` or `--db` only when
-that environment has exactly one configured alias. A database alias is a catalog
-name, not necessarily the physical MongoDB database name.
+Use actual environment and connection names from discovery. Every database
+operation requires explicit `-e` or `--env`. With a default connection, `-d` or
+`--db` selects a physical MongoDB database without prior alias registration. A
+matching alias retains its original mapping. `--connection NAME` selects a
+physical database through that connection, bypassing aliases. Without `-d`, use
+the default connection's URI database, or the sole configured alias if there is
+no URI database. Explicit `--connection` uses only its own URI database when `-d`
+is omitted. `authSource` never selects the database. Ambiguity requires an
+explicit target. Legacy environments keep their original alias-only selection
+unless a default is explicitly configured.
+
+`databases` lists optional aliases and default metadata, not live MongoDB databases.
+An empty alias list does not mean there are no accessible physical databases.
+Use a physical database identified by the task; do not invent a target.
 Environment names group registrations; they do not guarantee different physical
 databases or isolation. Two aliases can point to the same database through
 different credentials. Collection metadata such as `info.readOnly` does not
@@ -134,9 +144,10 @@ runnel run lookup.mjs -e local -d accounts --args-file args.json --timeout 30s
 ```
 
 `db` is the selected native MongoDB database. `connect` takes an explicit
-environment and optional alias, using the same single-alias inference rule.
+environment, optional database and optional connection, using the same target
+selection rules as the CLI.
 
-An operation uses one catalog snapshot, including aliases first visited by later
+An operation uses one catalog snapshot, including default selection and aliases first visited by later
 `connect()` calls. Catalog edits become visible on the next operation. Acquired
 handles keep their credentials until the operation finishes. A mapping change
 during credential recovery can return `TargetChanged`. Inspect possible writes
@@ -191,8 +202,9 @@ sign. `-e=local` selects the literal name `=local`.
 - `EnvironmentRequired` or `EnvironmentNotFound`: use `runnel envs`, then supply
   an explicit configured `-e`. If no suitable target exists, have a human run
   `runnel setup` in an interactive terminal.
-- Missing or ambiguous alias: use `runnel databases -e <environment>` and supply
-  the configured `-d`. Do not guess a physical database name.
+- Missing or ambiguous target: use `runnel connections -e <environment>` and
+  `runnel databases -e <environment>`. Select the physical `-d` through the default
+  connection, a configured alias, or explicit `--connection NAME -d DATABASE`.
 - `InputInvalid` or `InputTooLarge`: check command help, input shape, duration
   syntax, mutually exclusive flags, and file size. Files must be UTF-8 regular
   files or `-` for stdin.
@@ -203,7 +215,10 @@ sign. `-e=local` selects the literal name `=local`.
   `runnel daemon reset` before another attempt.
 - Credential or authentication failures: have the human check the registered
   connection, database-user permissions, and unlocked OS credential storage.
-  Never request a URI or secret in agent chat.
+  For `SecretNotFound` or rejected credentials, use `runnel connections -e ENV`
+  and have the human run `runnel connection rotate NAME -e ENV` in a terminal.
+  Retrying setup with the same name conflicts. Never request a URI or secret in
+  agent chat.
 
 An operation timeout, cancellation, worker failure, or lost connection does not
 prove that a write failed or rolled back. Runnel does not replay these requests;
@@ -214,11 +229,15 @@ outcomes but cannot prove whether a write committed.
 
 ## Management
 
-`runnel setup` is for a human in an interactive terminal. It registers a new
-connection through hidden credential entry and names database aliases. Setup
-cannot accept a URI through flags or piped stdin. Have the human run it when
-discovery shows no suitable target. Database names entered manually during setup
-are not verified for access.
+`runnel setup --env NAME` is for a human in an interactive terminal. One hidden
+URI prompt saves the environment's default connection. No alias, database list,
+connection label or repeated confirmation is required. Saving alone makes no
+MongoDB connection; `--test` explicitly requests a bounded ping before saving.
+URI syntax validation does not establish access. Bare `setup` asks the environment
+first. Setup cannot accept a URI through flags or piped stdin. It never replaces
+an existing connection. Additional connections use `setup --env NAME --connection
+LABEL`, optionally with `--default`. A human can replace an existing connection's
+credentials with `connection rotate LABEL -e NAME`.
 
 Manage catalog mappings with these commands when the task requires it:
 
@@ -226,14 +245,17 @@ Manage catalog mappings with these commands when the task requires it:
 runnel database add reporting -e local --connection primary --database reports
 runnel database rename reporting -e local --to analytics
 runnel database remove analytics -e local
+runnel connection default primary -e local
 runnel connection remove primary -e local
 ```
 
 Alias changes never create, rename, or delete physical databases. Adding an alias
 does not verify database access. A connection with aliases cannot be removed;
-remove its aliases first. Credential rotation is human-only: run
+remove its aliases first. Removing the default clears it without promoting another
+connection. `connection default NAME -e ENV` explicitly selects one. Credential rotation is human-only: run
 `runnel connection rotate primary -e local` in an interactive terminal and enter
-the replacement URI at the hidden prompt. It preserves aliases. Subsequent
+the replacement URI at the hidden prompt. It preserves aliases and default connection selection, updates the URI database,
+and uses a bounded ping without listing databases. Subsequent
 operations use the new credentials; already active work can use the old handle.
 A `SecretCleanupFailed` warning means the catalog commit succeeded but an old
 credential could not be removed from OS storage; do not repeat the mutation.

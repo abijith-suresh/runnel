@@ -15,10 +15,7 @@ import { PromptError, type SetupPrompt, terminalPrompt } from "../dist/setup-pro
 
 const envName = "local";
 const connName = "primary";
-const aliasName = "accounts";
 const otherEnv = "other";
-const secondAlias = "second";
-const newAlias = "new_accounts";
 
 const uri = "mongodb://synthetic-user:synthetic-private-value@example.invalid";
 const fixture = () => {
@@ -71,121 +68,98 @@ const registration: Registration = {
   aliases: [{ name: "accounts", database: "physical_accounts" }],
 };
 
-test("setup hides URI input, selects and names multiple databases, and stores only a reference", async (t) => {
+test("setup --env needs exactly one hidden URI prompt and no inspection or aliases", async (t) => {
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const io = input(["local", "", uri, "1, 2", "", "", "", "y"]);
-  const result = await setup(f.directory, io.prompt, {
-    inspect: async (value) => {
-      assert.equal(value, uri);
-      assert.equal(f.writes(), 0);
-      return inspect();
+  const io = input([`${uri}/accounts?authSource=admin`]);
+  const result = await setup(
+    f.directory,
+    io.prompt,
+    {
+      inspect: async () => {
+        throw new Error("Saving must not inspect or enumerate");
+      },
+      secrets: f.secrets,
     },
-    secrets: f.secrets,
-  });
+    { env: "local" }
+  );
   assert.deepEqual(result, {
     ok: true,
-    data: {
-      env: "local",
-      connection: "primary",
-      databases: ["physical_accounts", "physical_events"],
-    },
+    data: { env: "local", connection: "primary", databases: [] },
   });
+  assert.deepEqual(io.prompts, [{ label: "MongoDB connection URI (hidden)", hidden: true }]);
   assert.equal(io.remaining(), 0);
-  assert.deepEqual(
-    io.prompts.filter(({ hidden }) => hidden).map(({ label }) => label),
-    ["MongoDB connection URI (hidden)"]
-  );
-  assert(!io.output().includes(uri));
   assert.equal(f.writes(), 1);
   const catalog = await Effect.runPromise(readCatalog(f.directory));
-  const ref = catalog.environments[envName]?.connections[connName]?.secretRef;
+  const env = catalog.environments[envName];
+  assert.equal(catalog.schemaVersion, 2);
+  assert.equal(env?.defaultConnection, "primary");
+  assert.equal(env?.connections[connName]?.defaultDatabase, "accounts");
+  assert.deepEqual(env?.databases, {});
+  const ref = env?.connections[connName]?.secretRef;
   assert(ref);
-  assert.equal(await Effect.runPromise(f.secrets.read(ref)), uri);
-  assert.deepEqual(catalog.environments[envName]?.databases, {
-    physical_accounts: { connection: "primary", database: "physical_accounts" },
-    physical_events: { connection: "primary", database: "physical_events" },
-  });
-  const persisted = readFileSync(join(f.directory, "catalog.json"), "utf8");
-  assert(!persisted.includes(uri));
-  assert(!persisted.includes("synthetic-private-value"));
-  assert(!JSON.stringify(result).includes(ref));
-});
-
-test("permission-limited discovery permits manual names, including numeric database names", async (t) => {
-  const f = fixture();
-  t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const io = input(["", "", uri, "m", "123", "", "", "yes"]);
-  const result = await setup(f.directory, io.prompt, {
-    inspect: async () => ({
-      ok: false,
-      error: { code: "PermissionDenied", message: "No listing permission." },
-    }),
-    secrets: f.secrets,
-  });
-  assert(result.ok);
-  assert.match(io.output(), /cannot list databases/);
-  assert(io.prompts.some(({ label }) => label === "Database name in MongoDB"));
-  assert.equal(
-    (await Effect.runPromise(readCatalog(f.directory))).environments[envName]?.databases["123"]
-      ?.database,
-    "123"
+  assert.equal(await Effect.runPromise(f.secrets.read(ref)), `${uri}/accounts?authSource=admin`);
+  assert.doesNotMatch(
+    readFileSync(join(f.directory, "catalog.json"), "utf8") + io.output() + JSON.stringify(result),
+    /synthetic-private-value|mongodb:\/\//
   );
 });
 
-test("empty and truncated discovery retain manual selection and expose truncation", async (t) => {
-  for (const databases of [[], ["physical_accounts"]]) {
-    const f = fixture();
-    t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-    const io = input(["", "", uri, "m", "manual_database", "", "", "y"]);
-    const result = await setup(f.directory, io.prompt, {
-      inspect: async () => ({ ok: true, data: { databases, truncated: true } }),
-      secrets: f.secrets,
-    });
-    assert(result.ok);
-    assert.match(io.output(), /shortened/);
-    assert.match(io.output(), /Enter m to add a name/);
-  }
+test("bare setup asks only an environment and hidden URI, with literal numeric names", async (t) => {
+  const f = fixture();
+  t.after(() => rmSync(f.directory, { recursive: true, force: true }));
+  const io = input(["__proto__", "123", `${uri}/?authSource=admin`]);
+  const result = await setup(f.directory, io.prompt, { secrets: f.secrets });
+  assert(result.ok);
+  assert.equal(result.data.env, "123");
+  assert.equal(io.prompts.length, 3);
+  const env = (await Effect.runPromise(readCatalog(f.directory))).environments["123"];
+  assert.equal(env?.connections[connName]?.defaultDatabase, undefined);
+  assert.deepEqual(env?.databases, {});
 });
 
-test("setup rejects bad names and existing aliases without overwriting them", async (t) => {
+test("advanced setup preserves aliases and default unless explicitly selecting a new default", async (t) => {
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
   await Effect.runPromise(registerConnection(f.directory, registration, f.secrets));
-  const io = input([
-    "__proto__",
-    "local",
-    "primary",
-    "other",
-    uri,
-    "99",
-    "1,2",
-    "",
-    "new_accounts",
-    "second",
-    "y",
-  ]);
-  const result = await setup(f.directory, io.prompt, { inspect, secrets: f.secrets });
-  assert(result.ok);
-  assert.equal(io.remaining(), 0);
-  const env = (await Effect.runPromise(readCatalog(f.directory))).environments[envName];
-  assert.equal(env?.databases[aliasName]?.connection, "primary");
-  assert.equal(env?.databases[newAlias]?.connection, "other");
-  assert.equal(env?.databases[secondAlias]?.connection, "other");
-  assert.equal(Object.keys(env?.connections ?? {}).length, 2);
+  for (const [connection, makeDefault] of [
+    ["other", false],
+    ["reporting", true],
+  ] as const) {
+    const io = input([uri]);
+    assert(
+      (
+        await setup(
+          f.directory,
+          io.prompt,
+          { secrets: f.secrets },
+          { env: "local", connection, makeDefault }
+        )
+      ).ok
+    );
+    assert.equal(io.prompts.length, 1);
+    const env = (await Effect.runPromise(readCatalog(f.directory))).environments[envName];
+    assert.deepEqual(env?.databases, {
+      accounts: { connection: "primary", database: "physical_accounts" },
+    });
+    assert.equal(env?.defaultConnection, makeDefault ? connection : undefined);
+  }
+  assert.equal(f.stored.size, 3);
 });
 
-test("allowed inherited-property names work as new environment, connection and alias names", async (t) => {
-  const name = "toString";
+test("existing environment fails before hidden input with rotation guidance", async (t) => {
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const io = input([name, name, uri, "1", "", name, "y"]);
-  const result = await setup(f.directory, io.prompt, { inspect, secrets: f.secrets });
-  assert(result.ok);
-  const catalog = await Effect.runPromise(readCatalog(f.directory));
-  assert(Object.hasOwn(catalog.environments, name));
-  assert(Object.hasOwn(catalog.environments[name]?.connections ?? {}, name));
-  assert(Object.hasOwn(catalog.environments[name]?.databases ?? {}, name));
+  await Effect.runPromise(registerConnection(f.directory, registration, f.secrets));
+  const before = readFileSync(join(f.directory, "catalog.json"), "utf8");
+  const io = input([]);
+  const result = await setup(f.directory, io.prompt, { secrets: f.secrets }, { env: "local" });
+  assert(!result.ok);
+  assert.equal(result.error.code, "SetupNameConflict");
+  assert.match(result.error.message, /connection rotate/);
+  assert.equal(io.prompts.length, 0);
+  assert.equal(f.writes(), 1);
+  assert.equal(readFileSync(join(f.directory, "catalog.json"), "utf8"), before);
 });
 
 test("registration validates all names and aliases before touching credentials", async (t) => {
@@ -194,7 +168,6 @@ test("registration validates all names and aliases before touching credentials",
   for (const bad of [
     { ...registration, env: "__proto__" },
     { ...registration, connection: "constructor" },
-    { ...registration, aliases: [] },
     { ...registration, aliases: [...registration.aliases, ...registration.aliases] },
     { ...registration, aliases: [{ name: "bad.name", database: "okay" }] },
     { ...registration, aliases: [{ name: "okay", database: "bad.name" }] },
@@ -244,33 +217,42 @@ test("same URI registered in another environment has an independent credential a
   );
 });
 
-test("setup rechecks conflicts that appeared during input collection under the catalog lock", async (t) => {
+test("setup rechecks concurrent registration under the catalog lock and removes its new secret", async (t) => {
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const io = input(["local", "primary", uri, "1", "", "accounts", "y"]);
-  const result = await setup(f.directory, io.prompt, {
-    inspect: async () => {
-      await Effect.runPromise(registerConnection(f.directory, registration, f.secrets));
-      return inspect();
+  const io = input([uri]);
+  const result = await setup(
+    f.directory,
+    io.prompt,
+    {
+      inspect: async () => {
+        await Effect.runPromise(registerConnection(f.directory, registration, f.secrets));
+        return inspect();
+      },
+      secrets: f.secrets,
     },
-    secrets: f.secrets,
-  });
+    { env: "local", test: true }
+  );
   assert(!result.ok);
   assert.equal(result.error.code, "SetupNameConflict");
   assert.equal(f.stored.size, 1);
 });
 
-test("catalog commit failure after input removes the new credential and preserves the file", async (t) => {
+test("catalog commit failure removes the new credential and preserves the file", async (t) => {
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const io = input(["local", "primary", uri, "1", "", "accounts", "y"]);
-  const result = await setup(f.directory, io.prompt, {
-    inspect: async () => {
-      writeFileSync(join(f.directory, "catalog.json"), "{broken");
-      return inspect();
+  const result = await setup(
+    f.directory,
+    input([uri]).prompt,
+    {
+      inspect: async () => {
+        writeFileSync(join(f.directory, "catalog.json"), "{broken");
+        return inspect();
+      },
+      secrets: f.secrets,
     },
-    secrets: f.secrets,
-  });
+    { env: "local", test: true }
+  );
   assert(!result.ok);
   assert.equal(result.error.code, "CatalogInvalid");
   assert.equal(f.writes(), 1);
@@ -279,37 +261,74 @@ test("catalog commit failure after input removes the new credential and preserve
   assert(!JSON.stringify(result).includes(uri));
 });
 
-test("cancellation, failed inspection, empty URI and invalid catalogs never store credentials", async (t) => {
-  const cases = [
-    input(["local", "primary", new PromptError("SetupCancelled")]),
-    input(["local", "primary", uri, "1", "accounts", "", "n"]),
-    input(["local", "primary", ""]),
-  ];
-  for (const io of cases) {
+test("cancellation and invalid names/URI/catalogs never store credentials or call inspection", async (t) => {
+  for (const answer of [
+    new PromptError("SetupCancelled"),
+    "",
+    "x".repeat(16385),
+    "https://example.invalid",
+    `${uri}/bad.name`,
+    `${uri}/%ZZ`,
+    "mongodb://host.invalid:bogus/accounts",
+    "mongodb://host.invalid:99999/accounts",
+    "mongodb://host.invalid:0/accounts",
+  ]) {
     const f = fixture();
     t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-    const result = await setup(f.directory, io.prompt, { inspect, secrets: f.secrets });
+    const result = await setup(
+      f.directory,
+      input([answer]).prompt,
+      {
+        inspect: async () => {
+          throw new Error("Must not inspect");
+        },
+        secrets: f.secrets,
+      },
+      { env: "local" }
+    );
     assert(!result.ok);
     assert.equal(f.writes(), 0);
     assert(!existsSync(join(f.directory, "catalog.json")));
   }
   const f = fixture();
   t.after(() => rmSync(f.directory, { recursive: true, force: true }));
-  const failed = await setup(f.directory, input(["local", "primary", uri]).prompt, {
-    inspect: async () => ({
-      ok: false,
-      error: { code: "AuthenticationFailed", message: "Rejected credentials." },
-    }),
-    secrets: f.secrets,
-  });
-  assert(!failed.ok);
-  assert.equal(failed.error.code, "AuthenticationFailed");
-  assert.equal(f.writes(), 0);
+  const invalidName = await setup(
+    f.directory,
+    input([]).prompt,
+    { secrets: f.secrets },
+    { env: "bad.name" }
+  );
+  assert(!invalidName.ok && invalidName.error.code === "SetupInvalid");
   writeFileSync(join(f.directory, "catalog.json"), "{");
-  const invalid = await setup(f.directory, input([]).prompt, { inspect, secrets: f.secrets });
-  assert(!invalid.ok);
-  assert.equal(invalid.error.code, "CatalogInvalid");
+  const invalid = await setup(f.directory, input([]).prompt, { secrets: f.secrets });
+  assert(!invalid.ok && invalid.error.code === "CatalogInvalid");
   assert.equal(f.writes(), 0);
+});
+
+test("live testing is opt-in, cancellable, and a failed test leaves registration unchanged", async (t) => {
+  for (const code of ["PermissionDenied", "AuthenticationFailed", "DatabaseTimedOut"]) {
+    const f = fixture();
+    t.after(() => rmSync(f.directory, { recursive: true, force: true }));
+    let tested = false;
+    const result = await setup(
+      f.directory,
+      input([uri]).prompt,
+      {
+        inspect: async (value, signal) => {
+          assert.equal(value, uri);
+          assert(signal);
+          tested = true;
+          return { ok: false, error: { code, message: "Synthetic test failure." } };
+        },
+        secrets: f.secrets,
+      },
+      { env: "local", test: true }
+    );
+    assert(tested);
+    assert(!result.ok && result.error.code === code);
+    assert.equal(f.writes(), 0);
+    assert(!existsSync(join(f.directory, "catalog.json")));
+  }
 });
 
 const terminal = () => {

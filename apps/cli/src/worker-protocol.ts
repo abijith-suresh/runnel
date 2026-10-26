@@ -4,7 +4,11 @@ export const ipcLimitBytes = 1024 * 1024;
 export const nameLimit = 1000;
 export const scriptMaximumTimeoutMs = 2147483547;
 const text = Schema.String.check(Schema.isMaxLength(1024));
-const target = { env: Schema.optionalKey(text), db: Schema.optionalKey(text) };
+const target = {
+  env: Schema.optionalKey(text),
+  db: Schema.optionalKey(text),
+  connection: Schema.optionalKey(text),
+};
 const collection = Schema.String.check(Schema.isPattern(/^[^\0]{1,1024}$/));
 const format = Schema.optionalKey(Schema.Literals(["json", "ejson"]));
 const limit = Schema.optionalKey(
@@ -23,7 +27,11 @@ const requestSchema = Schema.Union([
       Schema.isBetween({ minimum: 0, maximum: scriptMaximumTimeoutMs })
     ),
   }),
-  Schema.Struct({ operation: Schema.Literal("inspect"), uri: Schema.String }),
+  Schema.Struct({
+    operation: Schema.Literal("inspect"),
+    uri: Schema.String,
+    testOnly: Schema.optionalKey(Schema.Literal(true)),
+  }),
   Schema.Struct({
     operation: Schema.Literal("list"),
     ...target,

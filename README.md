@@ -1,11 +1,12 @@
 # Runnel
 
-Runnel gives agents named access to MongoDB. A human registers a connection and
-names its database aliases once. Credentials stay in OS storage; agents use the
+Runnel gives agents named access to MongoDB. A human registers an environment and a hidden
+connection URI once. Agents choose physical databases at operation time; optional
+aliases still work. Credentials stay in OS storage; agents use the
 names without handling connection strings.
 
 ```sh
-runnel setup                       # human registration in a terminal
+runnel setup --env local           # one hidden URI prompt in a terminal
 runnel databases -e local
 runnel find users -e local -d accounts --limit 10
 runnel guide                       # offline agent instructions
@@ -63,12 +64,25 @@ Only JSON application values cross IPC.
 
 The CLI uses a user-wide `catalog.json` (`$XDG_CONFIG_HOME/runnel` or
 `~/.config/runnel` on Linux; `%APPDATA%/runnel` on Windows; an absolute
-`RUNNEL_HOME` overrides it). The validated schema version 1 requires
-`settings.idleTimeoutMs`, `settings.scriptTimeoutMs`, and `environments`. Each
-environment holds `connections` (provider plus a `keyring:runnel/<id>` secret
-reference) and named `databases` mapping a connection to a physical database
-name. No credential is stored in the file. Names use 1-64 ASCII letters, digits,
-underscores, or hyphens, excluding `__proto__`, `constructor`, and `prototype`.
+`RUNNEL_HOME` overrides it). Schema version 2 requires `settings.idleTimeoutMs`,
+`settings.scriptTimeoutMs`, and `environments`. Each environment holds
+`connections`, optional `defaultConnection`, and optional named `databases`
+represented by an empty mapping when no aliases are needed. Connections contain
+provider, a `keyring:runnel/<id>` secret reference, and an optional
+`defaultDatabase` from the URI path. `authSource` never selects the target database.
+No credential is stored in the file. Environment, connection and alias names use
+1-64 ASCII letters, digits, underscores, or hyphens, excluding `__proto__`,
+`constructor`, and `prototype`. Physical database names may contain Unicode and
+are validated against MongoDB's cross-platform restrictions and 63-byte limit.
+
+Version 1 catalogs remain readable with their original alias selection behavior.
+Reads never rewrite them or infer defaults. The next catalog mutation atomically
+writes version 2 under the catalog lock, preserving aliases, settings and secret
+references. Older Runnel binaries reject version 2 rather than discard its fields;
+unknown future versions also fail closed. After this upgrade, use a version 2
+compatible CLI. Stop the old daemon before switching installations. Downgrading
+the catalog in place is unsupported.
+
 Set `settings.historyEnabled` to `false` to disable history for new work.
 A detached local daemon starts on the first database operation and supervises
 one worker with warm connection pools; five minutes of

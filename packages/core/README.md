@@ -1,7 +1,7 @@
 # Runnel core
 
-`@abijith-suresh/runnel-core` selects a database alias from supplied environment
-names. It performs no I/O and does not import concrete providers or applications.
+`@abijith-suresh/runnel-core` selects database targets from supplied environment
+configuration. It performs no I/O and does not import concrete providers or applications.
 
 Pass `resolveDatabaseTarget` a read-only map of environment names to sets of
 database alias names, the requested `env`, and an optional `db`:
@@ -26,3 +26,14 @@ Build with `npm run build` at the repository root; run its tests with
 
 See [the repository](https://github.com/abijith-suresh/runnel) for design and
 development documentation. This package has not been published.
+
+`resolveConnectionTarget` accepts a map of environment names to `EnvironmentTargets`.
+Each supplies `connections` and `databases` maps and an optional `defaultConnection`.
+It returns `{ env, db, connection, database }`, preserving an alias in `db` while
+`database` identifies the physical target. Explicit aliases take precedence over
+physical selection through the default connection. An explicit `connection`
+selects physical names and bypasses aliases. Omission of `db` uses the default
+connection's `defaultDatabase`, then a sole alias; an explicit connection uses
+only its own default database. It never invents a default connection for legacy
+configuration. The original `resolveDatabaseTarget` API above stays unchanged.
+Provider-specific physical name validation belongs to the caller.

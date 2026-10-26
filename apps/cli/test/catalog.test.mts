@@ -28,7 +28,7 @@ test("catalog validation rejects unknown fields, secrets, names, providers, and 
     null,
     {},
     [],
-    { ...fixture(), schemaVersion: 2 },
+    { ...fixture(), schemaVersion: 3 },
     { ...fixture(), uri: "mongodb://sensitive.invalid" },
     { ...fixture(), settings: { idleTimeoutMs: -1, scriptTimeoutMs: 300000 } },
     { ...fixture(), settings: { idleTimeoutMs: 1.5, scriptTimeoutMs: 300000 } },
@@ -277,4 +277,121 @@ test("offline CLI reports catalog failures without reflecting their contents", (
   assert.equal(result.status, 1);
   assert.equal(JSON.parse(result.stdout).error.code, "CatalogInvalid");
   assert.doesNotMatch(result.stdout + result.stderr, /private-secret|mongodb:\/\//);
+});
+
+test("v1 reads preserve alias-only selection without writing and the next commit upgrades to v2", async (t) => {
+  const { readFileSync } = await import("node:fs");
+  const { updateCatalog } = await import("../dist/catalog-write.js");
+  const { resolveCatalogTarget } = await import("../dist/targets.js");
+  const directory = mkdtempSync(join(tmpdir(), "runnel-migrate-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "catalog.json");
+  const legacy = { ...fixture(), schemaVersion: 1 };
+  const before = JSON.stringify(legacy);
+  writeFileSync(path, before);
+  const loaded = await Effect.runPromise(readCatalog(directory));
+  assert.equal(loaded.schemaVersion, 2);
+  assert.deepEqual(loaded.environments, legacy.environments);
+  assert.equal(readFileSync(path, "utf8"), before);
+  assert.deepEqual(
+    resolveCatalogTarget(loaded, { env: "work" }),
+    Result.succeed({
+      env: "work",
+      db: "accounts",
+      connection: "primary",
+      database: "fixture_accounts",
+    })
+  );
+  const unmapped = resolveCatalogTarget(loaded, { env: "work", db: "unregistered" });
+  assert(Result.isFailure(unmapped) && unmapped.failure._tag === "DatabaseNotFound");
+  await Effect.runPromise(
+    updateCatalog(directory, (current) =>
+      Effect.succeed({
+        ...current,
+        settings: { ...current.settings, historyEnabled: false },
+      })
+    )
+  );
+  const committed = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(committed.schemaVersion, 2);
+  assert.deepEqual(committed.environments, legacy.environments);
+  // v1's exact version discriminator cannot accept the committed file.
+  assert.notEqual(committed.schemaVersion, legacy.schemaVersion);
+  writeFileSync(path, JSON.stringify({ ...committed, schemaVersion: 3 }));
+  const future = readFileSync(path, "utf8");
+  let updated = false;
+  const refused = await Effect.runPromise(
+    updateCatalog(directory, (current) => {
+      updated = true;
+      return Effect.succeed(current);
+    }).pipe(Effect.result)
+  );
+  assert(Result.isFailure(refused) && refused.failure.code === "CatalogInvalid");
+  assert.equal(updated, false);
+  assert.equal(readFileSync(path, "utf8"), future);
+});
+
+test("catalog validates default references and database metadata, including strict v1 decoding", async () => {
+  for (const environment of [
+    { ...fixture().environments.work, defaultConnection: "missing" },
+    { ...fixture().environments.work, defaultConnection: "constructor" },
+    {
+      ...fixture().environments.work,
+      connections: {
+        primary: {
+          provider: "mongodb",
+          secretRef: "keyring:runnel/fixture-01",
+          defaultDatabase: "bad.name",
+        },
+      },
+    },
+  ]) {
+    const result = await decode({ ...fixture(), environments: { work: environment } });
+    assert(Result.isFailure(result) && result.failure.code === "CatalogInvalid");
+  }
+  const invalidLegacy = await decode({
+    ...fixture(),
+    schemaVersion: 1,
+    environments: {
+      work: { ...fixture().environments.work, defaultConnection: "primary" },
+    },
+  });
+  assert(Result.isFailure(invalidLegacy));
+});
+
+test("offline discovery reports default connection and URI database without enumerating databases", async (t) => {
+  const { discover } = await import("../dist/discovery.js");
+  const directory = mkdtempSync(join(tmpdir(), "runnel-default-discovery-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(
+    join(directory, "catalog.json"),
+    JSON.stringify({
+      ...fixture(),
+      environments: {
+        local: {
+          defaultConnection: "primary",
+          connections: {
+            primary: {
+              provider: "mongodb",
+              secretRef: "keyring:runnel/synthetic",
+              defaultDatabase: "accounts",
+            },
+          },
+          databases: {},
+        },
+      },
+    })
+  );
+  assert.deepEqual(await Effect.runPromise(discover(directory, "connections", "local")), {
+    connections: [
+      { name: "primary", provider: "mongodb", default: true, defaultDatabase: "accounts" },
+    ],
+  });
+  assert.deepEqual(await Effect.runPromise(discover(directory, "databases", "local")), {
+    defaultConnection: "primary",
+    physicalDatabaseSelection: true,
+    defaultDatabase: "accounts",
+    databases: [],
+  });
+  assert(!existsSync(join(directory, "daemon")));
 });

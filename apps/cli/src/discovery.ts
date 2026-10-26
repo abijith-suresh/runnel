@@ -25,7 +25,14 @@ export function discover(
       return {
         environments: Object.keys(catalog.environments)
           .sort()
-          .map((name) => ({ name })),
+          .map((name) => ({
+            name,
+            ...(catalog.environments[name]?.defaultConnection === undefined
+              ? {}
+              : {
+                  defaultConnection: catalog.environments[name]?.defaultConnection,
+                }),
+          })),
       };
     const selected =
       env !== undefined && Object.hasOwn(catalog.environments, env)
@@ -40,9 +47,30 @@ export function discover(
       return {
         connections: Object.keys(selected.connections)
           .sort()
-          .map((name) => ({ name, provider: selected.connections[name]?.provider })),
+          .map((name) => ({
+            name,
+            provider: selected.connections[name]?.provider,
+            ...(selected.defaultConnection === name ? { default: true } : {}),
+            ...(selected.connections[name]?.defaultDatabase === undefined
+              ? {}
+              : {
+                  defaultDatabase: selected.connections[name]?.defaultDatabase,
+                }),
+          })),
       };
     return {
+      ...(selected.defaultConnection === undefined
+        ? {}
+        : {
+            defaultConnection: selected.defaultConnection,
+            physicalDatabaseSelection: true,
+            ...(selected.connections[selected.defaultConnection]?.defaultDatabase === undefined
+              ? {}
+              : {
+                  defaultDatabase:
+                    selected.connections[selected.defaultConnection]?.defaultDatabase,
+                }),
+          }),
       databases: Object.keys(selected.databases)
         .sort()
         .map((name) => ({ name, ...selected.databases[name] })),

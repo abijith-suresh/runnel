@@ -67,7 +67,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }) {
       { env: "local", connection: "primary" },
       {
         color: false,
-        ask: async () => "new-server",
+        ask: async () => "mongodb://new-server.invalid",
         write() {},
         progress: (_label, action) => action(new AbortController().signal),
       },
@@ -138,7 +138,7 @@ for (const edit of ["remove and register", "rename and re-add"] as const) {
             {
               env: "local",
               connection: "primary",
-              uri: "new-server",
+              uri: "mongodb://new-server.invalid",
               aliases: [
                 { name: "shop", database: "new_shop" },
                 { name: "reporting", database: "new_reports" },
@@ -211,7 +211,7 @@ for (const edit of ["remove and register", "rename and re-add"] as const) {
       );
       const next = await operations.execute({ operation: "list", env: "local", db: "shop" });
       assert.equal(next.ok, true);
-      assert.deepEqual(acquired.at(-1)?.slice(1), ["new-server", "new_shop"]);
+      assert.deepEqual(acquired.at(-1)?.slice(1), ["mongodb://new-server.invalid", "new_shop"]);
     } finally {
       resume.release();
       await pending;
@@ -316,8 +316,8 @@ test("parallel connects share the actual missing reference and recover together 
       acquired.map(([, uri, name]) => [uri, name]),
       [
         ["base-server", "base"],
-        ["new-server", "old_shop"],
-        ["new-server", "old_reports"],
+        ["mongodb://new-server.invalid", "old_shop"],
+        ["mongodb://new-server.invalid", "old_reports"],
       ]
     );
   } finally {
@@ -369,7 +369,7 @@ for (const edit of ["remove and register", "rename an unvisited alias"] as const
             {
               env: "local",
               connection: "primary",
-              uri: "new-server",
+              uri: "mongodb://new-server.invalid",
               aliases: [{ name: "shop", database: "new_shop" }],
             },
             f.store()
@@ -437,4 +437,127 @@ test("credential retries stop after three distinct missing references without da
     await pending;
     await operations.close();
   }
+});
+
+for (const change of ["default connection", "URI database"] as const) {
+  test(`credential recovery refuses changed ${change} before acquiring any pool`, async (t) => {
+    const f = await fixture(t);
+    const { updateCatalog } = await import("../dist/catalog-write.js");
+    const edit = (changed: boolean) =>
+      updateCatalog(f.directory, (catalog) => {
+        const env = catalog.environments["local"]!;
+        return Effect.succeed({
+          ...catalog,
+          environments: {
+            local: {
+              ...env,
+              defaultConnection: changed && change === "default connection" ? "other" : "primary",
+              connections: {
+                ...env.connections,
+                primary: {
+                  ...env.connections["primary"]!,
+                  defaultDatabase:
+                    changed && change === "URI database" ? "new_database" : "old_database",
+                },
+              },
+            },
+          },
+        });
+      });
+    await Effect.runPromise(edit(false));
+    let acquired = 0;
+    let reads = 0;
+    const operations = workerOperations(
+      f.directory,
+      {
+        database: async () => {
+          acquired++;
+          throw new Error("Must not acquire");
+        },
+        close: async () => {},
+      },
+      f.store(async () => {
+        reads++;
+        await Effect.runPromise(edit(true));
+        return undefined;
+      })
+    );
+    t.after(() => operations.close());
+    const result = await operations.execute({ operation: "list", env: "local" });
+    assert(!result.ok && result.error.code === "TargetChanged");
+    assert.equal(reads, 1);
+    assert.equal(acquired, 0);
+  });
+}
+
+test("scripts pin default and physical selection across a concurrent default change", async (t) => {
+  const f = await fixture(t);
+  const { updateCatalog } = await import("../dist/catalog-write.js");
+  const { defaultConnection } = await import("../dist/management.js");
+  await Effect.runPromise(
+    updateCatalog(f.directory, (catalog) => {
+      const env = catalog.environments["local"]!;
+      return Effect.succeed({
+        ...catalog,
+        environments: {
+          local: {
+            ...env,
+            defaultConnection: "primary",
+            connections: {
+              primary: { ...env.connections["primary"]!, defaultDatabase: "primary_database" },
+              other: { ...env.connections["other"]!, defaultDatabase: "other_database" },
+            },
+          },
+        },
+      });
+    })
+  );
+  const started = latch(),
+    resume = latch();
+  const acquired: string[][] = [];
+  const operations = workerOperations(
+    f.directory,
+    {
+      database: async (...args) => {
+        acquired.push(args);
+        return {
+          databaseName: args[2],
+          collection: () => ({
+            findOne: async () => {
+              started.release();
+              await resume.wait;
+            },
+          }),
+          listCollections: () => ({ async *[Symbol.asyncIterator]() {}, close: async () => {} }),
+        } as unknown as Db;
+      },
+      close: async () => {},
+    },
+    f.store()
+  );
+  t.after(() => operations.close());
+  const path = join(f.directory, "default-entry.mjs");
+  await writeFile(
+    path,
+    `export default async ({db,connect}) => {
+    await db.collection('barrier').findOne();
+    return [(await connect({env:'local'})).databaseName,
+      (await connect({env:'local',db:'unregistered'})).databaseName,
+      (await connect({env:'local',connection:'other',db:'explicit'})).databaseName];
+  };`
+  );
+  const running = operations.execute({ operation: "run", env: "local", path, timeoutMs: 5000 });
+  try {
+    await started.wait;
+    assert((await defaultConnection(f.directory, { env: "local", connection: "other" })).ok);
+  } finally {
+    resume.release();
+  }
+  const result = await running;
+  assert(result.ok && "value" in result.data);
+  assert.deepEqual(result.data.value, ["primary_database", "unregistered", "explicit"]);
+  assert.equal(acquired[1]?.[0], JSON.stringify(["local", "primary"]));
+  assert.equal(acquired[2]?.[0], JSON.stringify(["local", "primary"]));
+  const next = await operations.execute({ operation: "list", env: "local" });
+  assert(next.ok && "db" in next.data && next.data.db === "other_database");
 });
