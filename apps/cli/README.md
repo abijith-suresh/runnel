@@ -467,8 +467,25 @@ changes are checked against an opaque catalog revision inside the existing write
 lock, including credential-reference changes. A stale form receives a refresh
 error rather than overwriting newer state.
 
-Worker cancellation currently uses the existing supervisor's SIGTERM with a
-forced fallback. On Windows this is forced process termination, not proof that
-the driver's graceful close ran. Normal pool ownership and no-replay rules still
-apply. A cross-platform graceful worker shutdown protocol and managed-laptop
-interactive checks remain follow-up work. There is no browser query or script editor.
+Normal idle shutdown, Stop database daemon and reset use a private IPC shutdown
+request on every supported OS. The worker fences new requests and results, then
+awaits every owned pool's client close, including an active temporary inspection
+pool. It acknowledges whether close completed; the supervisor separately waits
+for the owned child to exit. Only successful close acknowledgement plus a clean
+exit without escalation proves a graceful shutdown. An acknowledgement alone,
+a failed close, a lost IPC channel, or a timeout does not prove driver cleanup.
+
+The normal grace window is two seconds. A hung close or broken channel triggers
+forced termination, and shutdown still waits for actual child exit. The worker
+also bounds orphan cleanup after its parent disconnects. Active operation
+cancellation, deadlines and malformed/crashed workers take the force path directly.
+Interrupted active and queued requests fail once without replay; database writes
+may already have occurred. A reset admits only newly submitted work after the old
+child exits. Status can show `stopping` while the owned child is still alive.
+
+Daemon stop acknowledgement follows owned-worker exit and pending history writes.
+A busy external history lock produces the existing HistoryUnavailable warning
+rather than blocking shutdown. The final socket-drain deadline starts after this
+work, so slow cleanup cannot discard a completed response or stop acknowledgement.
+Stop manager remains separate from Stop database daemon. There is no browser query
+or script editor. Interactive managed-laptop checks remain final user actions.

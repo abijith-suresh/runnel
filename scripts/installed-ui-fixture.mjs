@@ -54,8 +54,21 @@ async function fakeWorker() {
   process.on("disconnect", () => void stop());
   process.on("SIGTERM", () => void stop());
   process.on("message", async (input) => {
-    const { id, request: operation } = decodeRequest(input);
-    process.send({ type: "result", id, result: await operations.execute(operation) });
+    const message = decodeRequest(input);
+    if (message.type === "shutdown") {
+      stopping = true;
+      await operations.close();
+      process.send({ type: "shutdownComplete", id: message.id, closed: true }, () => {
+        if (process.connected) process.disconnect();
+      });
+      return;
+    }
+    if (stopping) return;
+    process.send({
+      type: "result",
+      id: message.id,
+      result: await operations.execute(message.request),
+    });
   });
   process.send({ type: "ready" });
 }

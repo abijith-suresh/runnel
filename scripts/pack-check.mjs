@@ -117,6 +117,14 @@ try {
     windowsHide: true,
     env: { ...process.env, RUNNEL_HOME: join(consumer, "fake-ui-catalog") },
   });
+  for (const name of ["installed-worker-lifecycle.mjs", "worker-driver-fixture.mjs"])
+    writeFileSync(join(consumer, name), readFileSync(new URL(`./${name}`, import.meta.url)));
+  execFileSync(process.execPath, [join(consumer, "installed-worker-lifecycle.mjs")], {
+    cwd: consumer,
+    stdio: "inherit",
+    timeout: 120000,
+    windowsHide: true,
+  });
   const offline = (args) =>
     spawnSync(process.execPath, [executable, ...args], {
       cwd: temporary,

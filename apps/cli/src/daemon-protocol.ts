@@ -41,7 +41,7 @@ const responseSchema = Schema.Union([
         pid: positive,
         version: text,
         worker: Schema.Struct({
-          state: Schema.Literals(["idle", "running", "stopped", "restarting"]),
+          state: Schema.Literals(["idle", "running", "stopped", "stopping", "restarting"]),
           pid: Schema.optionalKey(positive),
           active: Schema.Boolean,
           queued: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),

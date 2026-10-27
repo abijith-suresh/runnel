@@ -1,13 +1,17 @@
 // Synthetic process for lifecycle tests. It never opens a DB or credential store.
 let active = false;
 let calls = 0;
-process.on("SIGTERM", () => {}); // Exercise the supervisor's forced shutdown fallback.
+process.on("SIGTERM", () => {});
 if (process.env.RUNNEL_HOME?.endsWith("no-ready")) {
   setInterval(() => {}, 1000);
 } else {
   process.send({ type: "ready" });
 }
-process.on("message", ({ id, request }) => {
+process.on("message", ({ type, id, request }) => {
+  if (type === "shutdown") {
+    process.send({ type: "shutdownComplete", id, closed: true }, () => process.exit(0));
+    return;
+  }
   if (active) process.exit(80);
   active = true;
   calls++;

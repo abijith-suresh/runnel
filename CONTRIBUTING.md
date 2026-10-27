@@ -265,6 +265,25 @@ PowerShell `.cmd` foreground startup and HTTP shutdown when run on Windows.
 CI runs installed Chromium flows on Linux and native Windows. The browser driver
 prints process/RSS/CPU/latency/shutdown measurements with its methodology. These
 measure the synthetic fixture on that runner, not live MongoDB, an interactive
-corporate laptop, or a browser already in daily use. The UI uses the existing
-worker supervisor's forced Windows cancellation; graceful driver cleanup needs
-its own lifecycle work and interactive Windows evidence.
+corporate laptop, or a browser already in daily use. Normal worker teardown uses the private IPC close/exit handshake; active cancellation
+and hung or broken workers can still force termination. Interactive Windows
+Ctrl+C and live database cleanup remain separate evidence.
+
+## Worker lifecycle verification
+
+`npm run verify` includes isolated installed production-worker checks on Linux and
+native Windows. The disposable bootstrap keeps the production worker, application
+operations, MongoDB pool adapter and client constructor. It redirects credential
+storage to a synthetic module and replaces client database/close I/O, so it never
+loads the native vault or contacts MongoDB. Per-client JSONL close-start/completion
+markers and actual owned-child exit prove cleanup separately from acknowledgement.
+
+The fixtures cover normal close, failed/hung close, reset, active cancellation and
+deadlines, temporary inspection pools, status polling through idle shutdown, held
+history locks and actual installed CLI stop/reset. Windows invokes the npm `.cmd`
+launcher through PowerShell. Logs emit per-platform graceful/forced durations and
+owned process counts with methodology. Adversarial private-IPC tests cover missing,
+invalid or duplicated acknowledgements, disconnect/crash and startup/stop races.
+The unchanged installed browser suite verifies that manager and database stops
+stay separate. These tests prove integration with synthetic driver I/O; they do
+not prove live MongoDB, real vault availability or interactive laptop behavior.

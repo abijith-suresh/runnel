@@ -152,10 +152,6 @@ export async function startDaemon(directory: string, options: { workerEntrypoint
         return;
       }
       server.close(() => resolve());
-      const force = setTimeout(() => {
-        for (const socket of sockets) socket.destroy();
-      }, 1500);
-      server.once("close", () => clearTimeout(force));
     });
   stop = (afterWorker) => {
     if (closing) return closing;
@@ -167,6 +163,12 @@ export async function startDaemon(directory: string, options: { workerEntrypoint
         await worker.stop();
         await history.flush();
         afterWorker?.();
+        // Start the socket drain deadline after worker close/history, so slow cleanup cannot
+        // discard completed operation responses or the authenticated stop acknowledgement.
+        const force = setTimeout(() => {
+          for (const socket of sockets) socket.destroy();
+        }, 1500);
+        void listening.then(() => clearTimeout(force));
         await listening;
       } finally {
         await removeDaemonState(directory, instance).catch(() => undefined);

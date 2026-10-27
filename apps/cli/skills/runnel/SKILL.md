@@ -303,6 +303,11 @@ Treat a `HistoryUnavailable` warning separately from the database result.
 Database operations start a local daemon on demand. `daemon status`, `reset`,
 and `stop` do not start a missing daemon. `reset` discards active and queued work
 without replay and clears cached modules and pools. `stop` shuts down the daemon.
+Normal idle/stop/reset asks the worker to close clients over private IPC and waits
+for actual child exit. The close acknowledgement alone is not proof of exit.
+Cleanup has a two-second grace window before force escalation. Active cancellation,
+deadlines or broken workers force termination without replay; writes may already
+have occurred. `stopping` means an owned child is still exiting.
 After installing another Runnel version, stop the old daemon before new database
 work. An idle daemon shuts down automatically.
 
