@@ -133,6 +133,8 @@ export function workerOperations(
   inspectionPool: () => MongoPool = createMongoPool
 ) {
   const scripts = createScriptRunner();
+  const temporaryPools = new Set<MongoPool>();
+  let closing: Promise<void> | undefined;
   const catalogSnapshot = async (): Promise<Catalog> => {
     const result = await Effect.runPromise(readCatalog(directory).pipe(Effect.result));
     if (Result.isFailure(result)) throw new QueryError(result.failure.code, result.failure.message);
@@ -208,6 +210,11 @@ export function workerOperations(
   };
   return {
     async execute(input: WorkerOperation): Promise<WorkerResult> {
+      if (closing)
+        return failure(
+          "WorkerStopped",
+          "The database worker is closing. Requests were not retried."
+        );
       // worker.ts serializes operations. Keep mappings and credentials local to
       // one operation so a later connect cannot retire an already acquired handle.
       const database = operationDatabase();
@@ -225,6 +232,7 @@ export function workerOperations(
           // Unregistered URIs get an isolated client; registered access reuses the
           // same pinned target/credential resolution and connection pool as queries.
           const temporary = request.operation === "inspect" ? inspectionPool() : undefined;
+          if (temporary) temporaryPools.add(temporary);
           try {
             const db =
               request.operation === "inspect"
@@ -255,6 +263,7 @@ export function workerOperations(
             });
           } finally {
             await temporary?.close();
+            if (temporary) temporaryPools.delete(temporary);
           }
         }
         if (request.operation === "run") {
@@ -310,8 +319,15 @@ export function workerOperations(
       }
     },
     close: () => {
+      if (closing) return closing;
       scripts.close();
-      return pool.close();
+      closing = Promise.allSettled(
+        [pool, ...temporaryPools].map((owned) => Promise.resolve().then(() => owned.close()))
+      ).then((outcomes) => {
+        if (outcomes.some((outcome) => outcome.status === "rejected"))
+          throw new Error("Cannot close all worker pools.");
+      });
+      return closing;
     },
   };
 }

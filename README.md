@@ -113,3 +113,10 @@ database daemon interrupts its work without replay. The manager expires after
 30 minutes without human management actions. Read/status polling extends neither
 that timeout nor the database daemon's default five-minute idle timeout. See
 [CLI usage](apps/cli/README.md#local-human-manager) for pairing, security and lifecycle details.
+
+Normal daemon idle shutdown, stop and reset ask the owned worker to close its
+clients over private IPC. The supervisor waits up to two seconds for cleanup,
+then escalates if needed and observes actual child exit. A close acknowledgement
+alone is not an exit guarantee. Cancellation, active deadlines and broken workers
+use forceful termination, so interrupted database writes can have unknown outcomes
+and are never replayed.

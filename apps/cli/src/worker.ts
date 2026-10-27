@@ -7,16 +7,34 @@ if (!process.send) process.exit(1);
 const operations = workerOperations(catalogDirectory());
 let active = false;
 let stopping = false;
-const shutdown = async () => {
+const shutdown = async (id?: string) => {
   if (stopping) return;
+  // Fence admissions and results before closing any driver handle.
   stopping = true;
-  const deadline = setTimeout(() => process.exit(1), 1000);
+  // The supervisor owns the shorter grace deadline. This also bounds orphaned cleanup.
+  const deadline = setTimeout(() => process.exit(1), 2500);
+  let closed = false;
   try {
     await operations.close();
-  } finally {
-    clearTimeout(deadline);
-    process.exit(0);
+    closed = true;
+  } catch {
+    // Never return native driver errors, URIs or exception text over IPC.
   }
+  if (id !== undefined && process.connected) {
+    await new Promise<void>((resolve) => {
+      try {
+        process.send?.({ type: "shutdownComplete", id, closed }, () => resolve());
+      } catch {
+        resolve();
+      }
+    });
+  }
+  clearTimeout(deadline);
+  // The acknowledgement reports close completion, not process exit. Parent observes exit itself.
+  process.exitCode = closed ? 0 : 1;
+  if (process.connected) process.disconnect();
+  // Driver code may retain handles. Do not leave an acknowledged process running indefinitely.
+  process.exit(closed ? 0 : 1);
 };
 process.on("disconnect", () => void shutdown());
 process.on("SIGTERM", () => void shutdown());
@@ -27,6 +45,10 @@ process.on("message", (input) => {
     message = decodeRequest(input);
   } catch {
     void shutdown();
+    return;
+  }
+  if (message.type === "shutdown") {
+    void shutdown(message.id);
     return;
   }
   if (active || stopping) {

@@ -135,14 +135,19 @@ export const resultSchema = Schema.Union([
   Schema.Struct({ ok: Schema.Literal(false), error: errorSchema }),
 ]);
 export type WorkerResult = typeof resultSchema.Type;
-const requestMessage = Schema.Struct({
-  type: Schema.Literal("request"),
-  id: text,
-  request: requestSchema,
-});
+const shutdownId = Schema.String.check(Schema.isPattern(/^[a-f0-9-]{36}$/));
+const requestMessage = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("request"), id: text, request: requestSchema }),
+  Schema.Struct({ type: Schema.Literal("shutdown"), id: shutdownId }),
+]);
 const responseMessage = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),
   Schema.Struct({ type: Schema.Literal("result"), id: text, result: resultSchema }),
+  Schema.Struct({
+    type: Schema.Literal("shutdownComplete"),
+    id: shutdownId,
+    closed: Schema.Boolean,
+  }),
 ]);
 
 /** Internal IPC format, not a public API or a catalog schema. */
