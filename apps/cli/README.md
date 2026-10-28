@@ -489,3 +489,19 @@ rather than blocking shutdown. The final socket-drain deadline starts after this
 work, so slow cleanup cannot discard a completed response or stop acknowledgement.
 Stop manager remains separate from Stop database daemon. There is no browser query
 or script editor. Interactive managed-laptop checks remain final user actions.
+
+## Offline build identity
+
+`runnel build-info` prints JSON with `ok`, package name/version and `build`. Prepared
+dev/alpha artifacts include schemaVersion, full sourceSha, sourceVersion, channel,
+UTC date, runId, attempt and exact prerelease version. All three package manifests
+carry the same receipt and exact internal prerelease dependencies. The command
+reads at most 64 KiB of package metadata and accesses no catalog, vault, daemon,
+database or network. An ordinary source/local build has `build: null`; it does not
+claim an unrecorded source SHA. `--version` continues printing only the version.
+
+Development preparation and local tarball installs require Node 24.19.0 and pinned
+npm 11.16.0; installed CLI runtime supports Node `>=24.19.0 <25`. Use the repository's
+[distribution instructions](https://github.com/abijith-suresh/runnel/blob/main/docs/distribution.md)
+for native PowerShell installation and checksum/identity verification. A prepared
+artifact is not registry publication authorization.

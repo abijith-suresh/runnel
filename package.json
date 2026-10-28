@@ -27,13 +27,16 @@
     "test:policy": "node --test scripts/*.test.mjs",
     "test": "npm run test --workspaces --if-present",
     "pack:check": "npm run build && node scripts/pack-check.mjs",
-    "verify": "npm run release-policy && npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:policy && npm run test && npm run pack:check",
+    "verify": "npm run release-policy && npm run format:check && npm run lint && npm run build && npm run typecheck && npm run test:policy && npm run test && npm run pack:check && npm run check:prerelease",
     "prepare": "husky",
     "check:native-credentials": "npm run build && node scripts/check-native-credentials.mjs",
     "check:mongodb": "npm run build && node scripts/pack-check.mjs --mongodb",
     "install:local": "npm run build && node scripts/local-install.mjs",
     "check:mongodb-auth": "npm run build && node scripts/check-auth-mongodb.mjs",
-    "test:ui": "npm run build && node scripts/ui-browser-check.mjs"
+    "test:ui": "npm run build && node scripts/ui-browser-check.mjs",
+    "prepare:prerelease": "node scripts/prerelease.mjs",
+    "check:prerelease": "node scripts/check-prerelease.mjs",
+    "install:prerelease": "node scripts/install-prerelease.mjs"
   },
   "lint-staged": {
     "*.{js,mjs,cjs,ts,tsx,css,html,json,jsonc}": "biome check --write --no-errors-on-unmatched"

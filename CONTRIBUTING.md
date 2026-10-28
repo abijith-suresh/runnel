@@ -131,8 +131,8 @@ unguarded `changeset version`, and do not combine new functionality with a versi
 PR. Review and merge it only after required checks pass.
 
 Versioning is local and PR based. Packaging verification never publishes.
-The repository has no publication command, release workflow, registry credential,
-or auto-merge workflow. Publication requires a separately authorized task with
+The repository has no enabled publication command, registry credential, or
+auto-merge workflow. Its manual preparation workflow emits Actions artifacts only. Publication requires a separately authorized task with
 explicit controls for publishing the three matching artifacts.
 
 ## Local testing
@@ -287,3 +287,26 @@ invalid or duplicated acknowledgements, disconnect/crash and startup/stop races.
 The unchanged installed browser suite verifies that manager and database stops
 stay separate. These tests prove integration with synthetic driver I/O; they do
 not prove live MongoDB, real vault availability or interactive laptop behavior.
+
+## Manual prerelease preparation
+
+Source package versions and patch-only Changesets keep their existing rules.
+`prepare:prerelease` snapshots one exact Git commit without making a checkout,
+builds it with the pinned local toolchain, and changes versions only in temporary
+public-package staging directories. It emits all three tarballs together with a
+strict manifest, file hashes, SHA256SUMS and identical package build receipts.
+
+`npm run verify` now also runs `check:prerelease`: an actual exact-HEAD staging and
+outside-repository installation, offline agent/HTTP/production-worker checks,
+tamper/identity tests and source-preservation checks. Commit the implementation
+before this check so the Git object snapshot contains it. Windows quality runs
+the same checks natively. The manual workflow additionally downloads the canonical
+Linux-built artifact on Windows and verifies/installs those exact bytes.
+
+The manual workflow accepts only dev/alpha and manual main-branch dispatch. It
+rejects any publish request because publication authorization is disabled and
+unconfigured. It grants no OIDC write permission and consumes no registry secret.
+Enabling future publication requires a separate owner-approved change and protected
+authorization setup. See [distribution instructions](docs/distribution.md) for the
+exact version/tag policy and remaining owner-only decisions. No workflow publishes
+on main push, creates Releases, or changes stable versions.

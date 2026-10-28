@@ -1,0 +1,83 @@
+name: Prepare dev or alpha artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Prerelease channel and matching dist-tag
+        type: choice
+        options: [dev, alpha]
+        default: dev
+        required: true
+      publish:
+        description: Publication is disabled; true fails closed
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RUNNEL_CHANNEL: ${{ inputs.channel }}
+      RUNNEL_PUBLISH_REQUESTED: ${{ inputs.publish }}
+    steps:
+      - name: Refuse untrusted dispatch or disabled publication
+        run: |
+          node -e 'if (process.env.GITHUB_EVENT_NAME !== "workflow_dispatch" || process.env.GITHUB_REPOSITORY !== "abijith-suresh/runnel" || process.env.GITHUB_REF !== "refs/heads/main" || process.env.RUNNEL_PUBLISH_REQUESTED !== "false") throw new Error("Preparation requires manual main dispatch; publication authorization is disabled.")'
+      - name: Checkout exact dispatch commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned npm and locked dependencies
+        run: |
+          npm install --global npm@11.16.0
+          npm ci --ignore-scripts
+      - name: Verify source, packages and behavior
+        run: npm run verify
+      - name: Prepare and test one aligned candidate without publication
+        run: |
+          npm run prepare:prerelease -- --dispatch --output "$RUNNER_TEMP/runnel-prerelease" --channel "$RUNNEL_CHANNEL" --source-sha "$GITHUB_SHA" --date "$(date -u +%Y%m%d)" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Retain canonical tarballs and bounded receipts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runnel-${{ inputs.channel }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runnel-prerelease/
+          if-no-files-found: error
+          retention-days: 14
+
+  verify-windows:
+    needs: prepare
+    runs-on: windows-2025
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout the same source for verification scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned npm and locked verification dependencies
+        run: |
+          npm.cmd install --global npm@11.16.0
+          npm.cmd ci --ignore-scripts
+      - name: Download the canonical Linux-built bytes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: runnel-${{ inputs.channel }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runnel-prerelease
+      - name: Verify hashes, install and test exact prepared packages
+        run: npm.cmd run check:prerelease -- --bundle "$env:RUNNER_TEMP/runnel-prerelease" --expected-sha "$env:GITHUB_SHA"

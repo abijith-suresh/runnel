@@ -120,3 +120,17 @@ then escalates if needed and observes actual child exit. A close acknowledgement
 alone is not an exit guarantee. Cancellation, active deadlines and broken workers
 use forceful termination, so interrupted database writes can have unknown outcomes
 and are never replayed.
+
+## Development artifacts
+
+Manual dev/alpha preparation builds three aligned tarballs from one Git commit in
+an isolated temporary snapshot. Source versions stay at `0.0.7`; candidate versions
+use `0.0.0-dev.YYYYMMDD.RUN.ATTEMPT` or the matching `alpha` form. `runnel build-info`
+prints a bounded offline receipt containing the source SHA, channel and build
+identity. Ordinary source/local installs without a staged receipt report `build: null`.
+
+The manual Actions workflow only prepares and validates artifacts. Publication is
+disabled, including when its publish input is requested. No `latest` tag or GitHub
+Release is created. [Distribution instructions](docs/distribution.md) cover approved
+source/local-tarball PowerShell installation, artifact checksums and final owner
+authorization requirements.
