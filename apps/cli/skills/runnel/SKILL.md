@@ -315,3 +315,12 @@ For an isolated catalog, set `RUNNEL_HOME` to an absolute private directory.
 Stop its daemon before changing that variable. Use the platform's environment
 variable syntax; do not assume a particular home directory or shell. The guide
 and bundled skill need no catalog, credential storage, or running daemon.
+
+### Build identity
+
+Run `runnel build-info` for the bounded offline installed-package receipt. Prepared
+dev/alpha artifacts report one source SHA, channel, run and attempt across all
+three packages. Ordinary source/local builds report `build: null`; use the human's
+approved source/install receipt to identify them. `--version` remains plain text.
+Neither command starts a daemon or accesses the vault/database. Preparation does
+not authorize publication; stable/latest distribution remains disabled.

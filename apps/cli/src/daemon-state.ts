@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { constants, readFileSync } from "node:fs";
+import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readBuildInfo } from "./build-info.js";
 import { type DaemonDescriptor, decodeDescriptor } from "./daemon-protocol.js";
 
 export const daemonStateError = () => ({
@@ -12,13 +13,14 @@ export const daemonStateError = () => ({
 });
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 export function packageVersion(): string {
-  const metadata: { version?: unknown } = JSON.parse(
-    readFileSync(new URL("../package.json", import.meta.url), "utf8")
-  );
-  if (typeof metadata.version !== "string" || !/^\d+\.\d+\.\d+$/.test(metadata.version))
+  try {
+    // Prerelease daemons must use the same validated offline receipt as their CLI.
+    return readBuildInfo().version;
+  } catch {
     throw daemonStateError();
-  return metadata.version;
+  }
 }
+
 export async function privateDirectory(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const info = await lstat(directory);

@@ -20,6 +20,7 @@ Usage:
   runnel skill [print | path]
   runnel setup [--env <environment>] [--test]
   runnel config
+  runnel build-info
   runnel ui [--open]
   runnel settings [get | set --idle-timeout-ms <n> --script-timeout-ms <n> --history-enabled true|false]
   runnel envs
@@ -133,6 +134,7 @@ const commands: Record<string, CommandDefinition> = {
     options: ["env", "connection", "default", "test"],
   },
   config: { usage: "config" },
+  "build-info": { usage: "build-info" },
   ui: { usage: "ui [--open]", options: ["open"] },
   settings: {
     usage:
@@ -378,6 +380,18 @@ async function main(): Promise<number> {
         error instanceof RangeError
           ? `${error.message}\n`
           : "Cannot read the bundled agent guide. Reinstall the CLI.\n"
+      );
+      return 1;
+    }
+  }
+  if (command === "build-info") {
+    try {
+      const { readBuildInfo } = await import("./build-info.js");
+      process.stdout.write(`${JSON.stringify({ ok: true, data: readBuildInfo() })}\n`);
+      return 0;
+    } catch {
+      process.stdout.write(
+        `${JSON.stringify({ ok: false, error: { code: "BuildIdentityInvalid", message: "Cannot read the bounded offline Runnel build identity." } })}\n`
       );
       return 1;
     }
