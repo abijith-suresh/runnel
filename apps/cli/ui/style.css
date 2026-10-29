@@ -1811,3 +1811,8 @@ input::placeholder {
   background: #fff;
   border-color: #d5dfe2;
 }
+@media (max-width: 850px) {
+  .environment-tab {
+    flex: 0 0 180px;
+  }
+}
