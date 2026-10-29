@@ -315,7 +315,7 @@ try {
   await page.getByLabel("New alias name", { exact: true }).fill("weekly");
   await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
-  await page.getByText("weekly", { exact: true }).waitFor();
+  await page.locator(".alias-row summary").getByText("weekly", { exact: true }).waitFor();
   assert.equal((await requestFixture("stats")).stats.inspections, 0);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel(/^Idle shutdown/).fill(String(databaseIdleMs));
@@ -673,6 +673,19 @@ try {
     ]) {
       await page.setViewportSize(size);
       await page.evaluate(() => window.scrollTo(0, 0));
+      if (size.width <= 850) {
+        const picker = page.getByLabel("Selected environment");
+        assert.equal(await picker.inputValue(), longName);
+        assert.equal(await picker.locator("option").count(), 6);
+        await picker.selectOption("development");
+        assert.equal(await page.locator(".detail-heading h2").innerText(), "development");
+        await picker.selectOption(longName);
+        assert.equal(await picker.inputValue(), longName);
+        const nameDetails = page.locator(".detail-heading .object-name");
+        await nameDetails.locator("summary").click();
+        assert.equal(await nameDetails.locator("code").innerText(), longName);
+        await nameDetails.locator("summary").click();
+      }
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         true

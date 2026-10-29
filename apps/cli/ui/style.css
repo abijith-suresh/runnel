@@ -1816,3 +1816,66 @@ input::placeholder {
     flex: 0 0 180px;
   }
 }
+.environment-picker {
+  display: none;
+}
+.object-name {
+  min-width: 0;
+  max-width: 100%;
+}
+.object-name summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.object-name summary::-webkit-details-marker {
+  display: none;
+}
+.object-name summary::after {
+  content: "▸";
+  color: #526068;
+  font-size: 12px;
+  flex: none;
+}
+.object-name[open] summary::after {
+  content: "▾";
+}
+.object-name summary span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.object-name > code {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+}
+.detail-heading > div,
+.connection-info > div,
+.alias-row > div:first-child {
+  min-width: 0;
+}
+@media (max-width: 850px) {
+  .environment-list {
+    display: none;
+  }
+  .environment-picker {
+    display: grid;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #526068;
+  }
+  .environment-picker select {
+    width: 100%;
+    min-height: 44px;
+  }
+}

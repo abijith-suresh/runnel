@@ -494,6 +494,28 @@ function App() {
                 }
               >
                 <div class="environment-layout">
+                  <label class="environment-picker">
+                    <span>Environment</span>
+                    <select
+                      aria-label="Selected environment"
+                      value={selection()}
+                      onChange={(event) => {
+                        setSelection(event.currentTarget.value);
+                        setInspection(undefined);
+                      }}
+                    >
+                      <For each={config()?.environments}>
+                        {(environment) => (
+                          <option
+                            value={environment.name}
+                            selected={selection() === environment.name}
+                          >
+                            {environment.name}
+                          </option>
+                        )}
+                      </For>
+                    </select>
+                  </label>
                   <section class="environment-list" aria-label="Registered environments">
                     <For each={config()?.environments}>
                       {(environment) => (
@@ -534,7 +556,14 @@ function App() {
                         <div class="detail-heading">
                           <div>
                             <p class="eyebrow">ENVIRONMENT</p>
-                            <h2>{environment.name}</h2>
+                            <h2>
+                              <details class="object-name">
+                                <summary>
+                                  <span>{environment.name}</span>
+                                </summary>
+                                <code>{environment.name}</code>
+                              </details>
+                            </h2>
                           </div>
                           <span class="outline-badge">MongoDB</span>
                         </div>
@@ -562,7 +591,14 @@ function App() {
                               <div class="connection-info">
                                 <div>
                                   <div class="connection-title">
-                                    <strong>{connection.name}</strong>
+                                    <strong>
+                                      <details class="object-name">
+                                        <summary>
+                                          <span>{connection.name}</span>
+                                        </summary>
+                                        <code>{connection.name}</code>
+                                      </details>
+                                    </strong>
                                     <Show when={connection.default}>
                                       <span class="default-badge">Default</span>
                                     </Show>
@@ -731,13 +767,33 @@ function App() {
                             {(alias) => (
                               <div class="alias-row">
                                 <div>
-                                  <strong>{alias.name}</strong>
+                                  <strong>
+                                    <details class="object-name">
+                                      <summary>
+                                        <span>{alias.name}</span>
+                                      </summary>
+                                      <code>{alias.name}</code>
+                                    </details>
+                                  </strong>
                                   <span class="alias-arrow" aria-hidden="true">
                                     {" "}
                                     →{" "}
                                   </span>
-                                  <code>{alias.database}</code>
-                                  <small>via {alias.connection}</small>
+                                  <details class="object-name">
+                                    <summary>
+                                      <span>{alias.database}</span>
+                                    </summary>
+                                    <code>{alias.database}</code>
+                                  </details>
+                                  <small>
+                                    via{" "}
+                                    <details class="object-name">
+                                      <summary>
+                                        <span>{alias.connection}</span>
+                                      </summary>
+                                      <code>{alias.connection}</code>
+                                    </details>
+                                  </small>
                                 </div>
                                 <div class="row-actions">
                                   <button
@@ -1035,10 +1091,7 @@ function App() {
                 </p>
               </Show>
               <Show when={active.kind === "register"}>
-                <p>
-                  Saving is offline. A default connection is created without database discovery or
-                  required aliases.
-                </p>
+                <p>Save an environment and connection without contacting MongoDB.</p>
                 <label class="field-label">
                   Environment name
                   <input
