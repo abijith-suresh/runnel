@@ -1795,3 +1795,19 @@ summary:focus-visible {
 input::placeholder {
   color: #657279;
 }
+.environment-list,
+.environment-tab {
+  min-width: 0;
+}
+.inspection-result {
+  color: #263941;
+  background: #f3f6f7;
+  border-color: #d5dfe2;
+}
+.inspection-result p {
+  color: #526068;
+}
+.inspection-result li {
+  background: #fff;
+  border-color: #d5dfe2;
+}
