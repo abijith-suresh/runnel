@@ -263,6 +263,10 @@ try {
   });
   await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
   await sent;
+  if (process.env.RUNNEL_UI_SCREENSHOT)
+    await page.screenshot({
+      path: process.env.RUNNEL_UI_SCREENSHOT.replace(/\.png$/, "-saving.png"),
+    });
   assert.equal(await page.getByLabel("MongoDB URI", { exact: true }).inputValue(), "");
   releaseSave();
   await page.getByText("local", { exact: true }).first().waitFor();
@@ -358,6 +362,13 @@ try {
           fullPage: true,
         });
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      if (process.env.RUNNEL_UI_SCREENSHOT && size.width >= 1280)
+        await page.screenshot({
+          path: process.env.RUNNEL_UI_SCREENSHOT.replace(
+            /\.png$/,
+            `-${size.width}-${name.toLowerCase()}-scrolled.png`
+          ),
+        });
       assert.equal(
         await page
           .locator(".sidebar")
