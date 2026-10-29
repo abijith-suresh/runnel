@@ -498,7 +498,9 @@ test("supported script defaults apply to new submissions and explicit timeout ov
     const path = join(f.directory, "settings-deadline.mjs");
     await writeFile(
       path,
-      "export default async () => { await new Promise(resolve => setTimeout(resolve, 100)); return true; };\n"
+      // Exercise the worker's script deadline cooperatively. An uncancellable
+      // sleep also races the supervisor's separate hard operation deadline.
+      "import { setTimeout } from 'node:timers/promises'; export default async ({ signal }) => { await setTimeout(100, undefined, { signal }); return true; };\n"
     );
     assert((await runScriptCommand(f.directory, path, { env: "local" })).ok);
     await Effect.runPromise(setSettings(f.directory, { scriptTimeoutMs: 10 }));

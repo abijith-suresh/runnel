@@ -58,6 +58,19 @@ function duration(ms: number) {
   return ms % 60000 === 0 ? `${ms / 60000} min` : `${ms} ms`;
 }
 
+function ObjectName(props: { value: string }) {
+  return (
+    <Show when={props.value.length > 32} fallback={<span>{props.value}</span>}>
+      <details class="object-name">
+        <summary>
+          <span>{props.value}</span>
+        </summary>
+        <code>{props.value}</code>
+      </details>
+    </Show>
+  );
+}
+
 function App() {
   const [phase, setPhase] = createSignal<"pairing" | "locked" | "ready" | "stopped">("pairing");
   const [view, setView] = createSignal<"connections" | "settings" | "runtime">("connections");
@@ -335,71 +348,40 @@ function App() {
   return (
     <div class="workbench">
       <aside class="sidebar" aria-label="Manager navigation">
-        <a
-          class="brand"
-          href="/"
-          onClick={(event) => event.preventDefault()}
-          aria-label="Runnel home"
-        >
-          <span class="brand-mark" aria-hidden="true">
-            r
-          </span>
-          <span>
-            runnel<span class="brand-caption">LOCAL MANAGER</span>
-          </span>
-        </a>
-        <div class="sidebar-rule" />
-        <p class="nav-label">WORKSPACE</p>
-        <nav>
-          <For
-            each={[
-              { key: "connections" as const, label: "Environments", icon: "◈" },
-              { key: "settings" as const, label: "Settings", icon: "≡" },
-              { key: "runtime" as const, label: "Runtime", icon: "○" },
-            ]}
-          >
-            {(item) => (
-              <button
-                type="button"
-                classList={{ "nav-item": true, active: view() === item.key }}
-                aria-current={view() === item.key ? "page" : undefined}
-                onClick={() => setView(item.key)}
-              >
-                <span class="nav-icon" aria-hidden="true">
-                  {item.icon}
-                </span>
-                {item.label}
-              </button>
-            )}
-          </For>
-        </nav>
-        <div class="sidebar-note">
-          <span class="connection-light" /> On this computer
-          <p>
-            Configuration stays local.
-            <br />
-            Credentials stay in your OS vault.
-          </p>
-        </div>
-        <div class="sidebar-bottom">
-          <span class="mono">127.0.0.1</span>
-          <span>HUMAN SETUP · AGENT ACCESS</span>
+        <div class="sidebar-inner">
+          <div class="brand">
+            Runnel <span>Local manager</span>
+          </div>
+          <nav>
+            <For
+              each={[
+                { key: "connections" as const, label: "Environments", icon: "◈" },
+                { key: "settings" as const, label: "Settings", icon: "≡" },
+                { key: "runtime" as const, label: "Runtime", icon: "○" },
+              ]}
+            >
+              {(item) => (
+                <button
+                  type="button"
+                  classList={{ "nav-item": true, active: view() === item.key }}
+                  aria-current={view() === item.key ? "page" : undefined}
+                  onClick={() => {
+                    setView(item.key);
+                    setMessage("");
+                    setError("");
+                  }}
+                >
+                  <span class="nav-icon" aria-hidden="true">
+                    {item.icon}
+                  </span>
+                  {item.label}
+                </button>
+              )}
+            </For>
+          </nav>
         </div>
       </aside>
       <main>
-        <header class="topbar">
-          <span class="crumb">
-            Runnel <span aria-hidden="true">/</span>{" "}
-            {view() === "connections"
-              ? "Environments"
-              : view() === "settings"
-                ? "Settings"
-                : "Runtime"}
-          </span>
-          <span class="local-badge">
-            <span /> Local session
-          </span>
-        </header>
         <Show
           when={phase() === "ready"}
           fallback={
@@ -433,26 +415,19 @@ function App() {
           <div class="page-content">
             <div class="page-heading">
               <div>
-                <p class="eyebrow">
-                  {view() === "connections"
-                    ? "SET UP ONCE. WORK BY NAME."
-                    : view() === "settings"
-                      ? "YOUR PREFERENCES"
-                      : "PROCESSES ON THIS COMPUTER"}
-                </p>
                 <h1>
                   {view() === "connections"
-                    ? "Your environments."
+                    ? "Environments"
                     : view() === "settings"
-                      ? "A few useful defaults."
-                      : "Know what is running."}
+                      ? "Settings"
+                      : "Runtime"}
                 </h1>
                 <p class="page-description">
                   {view() === "connections"
-                    ? "Register a name and a hidden URI. Agents choose the database when they work."
+                    ? "Register an environment and MongoDB URI."
                     : view() === "settings"
-                      ? "Validated settings shared by the CLI and this manager."
-                      : "The manager and database daemon run independently. Status checks do not keep database pools alive."}
+                      ? "Configure database worker behavior."
+                      : "Manage the manager and database daemon separately."}
                 </p>
               </div>
               <button
@@ -496,8 +471,8 @@ function App() {
                     <div class="empty-symbol" aria-hidden="true">
                       ◈
                     </div>
-                    <p class="eyebrow">A SMALL FIRST STEP</p>
-                    <h2>Give your connection a name.</h2>
+                    <p class="eyebrow">GET STARTED</p>
+                    <h2>No environments</h2>
                     <p>
                       Start with an environment such as <code>local</code> or <code>staging</code>{" "}
                       and its MongoDB URI. Saving is offline. No database list or alias is required.
@@ -519,6 +494,28 @@ function App() {
                 }
               >
                 <div class="environment-layout">
+                  <label class="environment-picker">
+                    <span>Environment</span>
+                    <select
+                      aria-label="Selected environment"
+                      value={selection()}
+                      onChange={(event) => {
+                        setSelection(event.currentTarget.value);
+                        setInspection(undefined);
+                      }}
+                    >
+                      <For each={config()?.environments}>
+                        {(environment) => (
+                          <option
+                            value={environment.name}
+                            selected={selection() === environment.name}
+                          >
+                            {environment.name}
+                          </option>
+                        )}
+                      </For>
+                    </select>
+                  </label>
                   <section class="environment-list" aria-label="Registered environments">
                     <For each={config()?.environments}>
                       {(environment) => (
@@ -558,19 +555,18 @@ function App() {
                       >
                         <div class="detail-heading">
                           <div>
-                            <p class="eyebrow">ENVIRONMENT</p>
-                            <h2>{environment.name}</h2>
+                            <h2>
+                              <ObjectName value={environment.name} />
+                            </h2>
                           </div>
-                          <span class="outline-badge">MongoDB</span>
                         </div>
-                        <div class="detail-explainer">
-                          <span aria-hidden="true">↳</span>
+                        <details class="cli-help">
+                          <summary>CLI usage</summary>
                           <p>
-                            Use <code>-e {environment.name} -d database_name</code> with the CLI.
-                            Optional aliases can point to a particular connection and physical
-                            database.
+                            Use <code>-e {environment.name} -d database_name</code> to select a
+                            physical database. Aliases can refer to a connection and database.
                           </p>
-                        </div>
+                        </details>
                         <div class="section-heading">
                           <h3>Connections</h3>
                           <button
@@ -586,12 +582,11 @@ function App() {
                           {(connection) => (
                             <div class="connection-row">
                               <div class="connection-info">
-                                <span class="connection-glyph" aria-hidden="true">
-                                  ◈
-                                </span>
                                 <div>
                                   <div class="connection-title">
-                                    <strong>{connection.name}</strong>
+                                    <strong>
+                                      <ObjectName value={connection.name} />
+                                    </strong>
                                     <Show when={connection.default}>
                                       <span class="default-badge">Default</span>
                                     </Show>
@@ -754,23 +749,23 @@ function App() {
                         </div>
                         <Show
                           when={environment.databases.length > 0}
-                          fallback={
-                            <p class="quiet-empty">
-                              No aliases. Agents can use physical database names directly.
-                            </p>
-                          }
+                          fallback={<p class="quiet-empty">No aliases configured.</p>}
                         >
                           <For each={environment.databases}>
                             {(alias) => (
                               <div class="alias-row">
                                 <div>
-                                  <strong>{alias.name}</strong>
+                                  <strong>
+                                    <ObjectName value={alias.name} />
+                                  </strong>
                                   <span class="alias-arrow" aria-hidden="true">
                                     {" "}
                                     →{" "}
                                   </span>
-                                  <code>{alias.database}</code>
-                                  <small>via {alias.connection}</small>
+                                  <ObjectName value={alias.database} />
+                                  <small>
+                                    via <ObjectName value={alias.connection} />
+                                  </small>
                                 </div>
                                 <div class="row-actions">
                                   <button
@@ -806,10 +801,6 @@ function App() {
                             )}
                           </For>
                         </Show>
-                        <p class="detail-footnote">
-                          Saving configuration never opens a database connection. Test and discovery
-                          run only when you choose them.
-                        </p>
                       </section>
                     )}
                   </Show>
@@ -839,8 +830,7 @@ function App() {
                 }}
               >
                 <div class="panel-title">
-                  <span class="section-caption">DATABASE WORKER</span>
-                  <h2>Limits with a clear clock.</h2>
+                  <h2>Database worker</h2>
                   <p>Changes do not interrupt work already in progress.</p>
                 </div>
                 <label class="setting-row">
@@ -899,9 +889,6 @@ function App() {
                   <span class="sr-only">Enable operation history</span>
                 </label>
                 <div class="panel-footer">
-                  <p>
-                    CLI equivalent: <code>runnel settings set</code>
-                  </p>
                   <button type="submit" class="button primary" disabled={busy()}>
                     {busy() ? "Saving…" : "Save settings"}
                   </button>
@@ -912,28 +899,16 @@ function App() {
               <div class="runtime-grid">
                 <section class="runtime-card">
                   <div class="runtime-heading">
-                    <span class="section-caption">LOCAL MANAGER</span>
+                    <span class="section-caption">Manager status</span>
                     <span class="status-pill">
                       <span class="status-dot" /> Running
                     </span>
                   </div>
-                  <h2>This page's process.</h2>
-                  <p>
-                    The foreground manager serves the bundled interface. Closing a tab does not stop
-                    it.
-                  </p>
+                  <h2>Manager</h2>
                   <dl>
-                    <div>
-                      <dt>Session</dt>
-                      <dd>Memory only</dd>
-                    </div>
                     <div>
                       <dt>Expires</dt>
                       <dd>{new Date(expiresAt()).toLocaleTimeString()}</dd>
-                    </div>
-                    <div>
-                      <dt>Browser opening</dt>
-                      <dd>Explicit opt-in</dd>
                     </div>
                   </dl>
                   <button
@@ -951,16 +926,12 @@ function App() {
                 </section>
                 <section class="runtime-card">
                   <div class="runtime-heading">
-                    <span class="section-caption">DATABASE DAEMON</span>
+                    <span class="section-caption">Daemon status</span>
                     <span classList={{ "status-pill": true, stopped: !status().running }}>
                       <span class="status-dot" /> {status().running ? "Running" : "Stopped"}
                     </span>
                   </div>
-                  <h2>{status().running ? "Ready for database work." : "Starts when needed."}</h2>
-                  <p>
-                    Only explicit database operations start the daemon and its worker. Opening this
-                    manager does not.
-                  </p>
+                  <h2>Database daemon</h2>
                   <dl>
                     <div>
                       <dt>Daemon process</dt>
@@ -1000,25 +971,7 @@ function App() {
                   </small>
                 </section>
               </div>
-              <div class="runtime-note">
-                <span class="runtime-arrow" aria-hidden="true">
-                  ↳
-                </span>
-                <p>
-                  Status polling reads process metadata. It does not access the credential vault,
-                  connect to MongoDB or renew database idle time.
-                </p>
-              </div>
             </Show>
-            <footer class="page-footer">
-              <span>CONFIGURATION, NEVER DATABASE CONTENT</span>
-              <span>
-                Local by design{" "}
-                <span class="footer-arrow" aria-hidden="true">
-                  ↗
-                </span>
-              </span>
-            </footer>
           </div>
         </Show>
       </main>
@@ -1050,15 +1003,15 @@ function App() {
               </div>
               <h2 id="sheet-title">
                 {active.kind === "register"
-                  ? "A name. A connection."
+                  ? "Add environment"
                   : active.kind === "connection"
-                    ? "Add a connection."
+                    ? "Add connection"
                     : active.kind === "rotate"
-                      ? "Replace the credential."
+                      ? "Replace credential"
                       : active.kind === "alias"
-                        ? "Add an optional alias."
+                        ? "Add alias"
                         : active.kind === "rename"
-                          ? "Rename the alias."
+                          ? "Rename alias"
                           : active.kind === "removeConnection"
                             ? "Remove this connection?"
                             : active.kind === "removeAlias"
@@ -1078,10 +1031,7 @@ function App() {
                 </p>
               </Show>
               <Show when={active.kind === "register"}>
-                <p>
-                  Saving is offline. A default connection is created without database discovery or
-                  required aliases.
-                </p>
+                <p>Save an environment and connection without contacting MongoDB.</p>
                 <label class="field-label">
                   Environment name
                   <input
