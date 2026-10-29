@@ -1,6 +1,6 @@
 // Browser acceptance against the public tarballs, never a frontend development server.
 import assert from "node:assert/strict";
-import { fork, spawnSync } from "node:child_process";
+import { fork, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -322,11 +322,57 @@ try {
   await page.getByLabel(/^Script timeout/).fill("12345");
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
   await page.getByText("Settings saved.", { exact: true }).waitFor();
+  await page.evaluate(() => window.scrollTo(0, 0));
   if (process.env.RUNNEL_UI_SCREENSHOT)
     await page.screenshot({
       path: process.env.RUNNEL_UI_SCREENSHOT.replace(/\.png$/, "-settings.png"),
       fullPage: true,
     });
+  // Capture every configuration dialog at desktop and phone widths without submitting it.
+  for (const size of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.getByRole("button", { name: "Environments", exact: true }).click();
+    for (const [label, trigger] of [
+      ["register", "+ Add environment"],
+      ["connection", "Add advanced connection"],
+      ["rotate", "Replace credential"],
+      ["alias", "+ Add alias"],
+      ["rename", "Rename"],
+      ["remove-connection", "Remove"],
+    ]) {
+      await page.getByRole("button", { name: trigger, exact: true }).first().click();
+      if (process.env.RUNNEL_UI_SCREENSHOT)
+        await page.screenshot({
+          path: process.env.RUNNEL_UI_SCREENSHOT.replace(
+            /\.png$/,
+            `-${size.width}-dialog-${label}.png`
+          ),
+        });
+      await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+    }
+    await page.locator(".alias-row").getByRole("button", { name: "Remove", exact: true }).click();
+    if (process.env.RUNNEL_UI_SCREENSHOT)
+      await page.screenshot({
+        path: process.env.RUNNEL_UI_SCREENSHOT.replace(
+          /\.png$/,
+          `-${size.width}-dialog-remove-alias.png`
+        ),
+      });
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Runtime", exact: true }).click();
+    await page.getByRole("button", { name: "Stop manager", exact: true }).click();
+    if (process.env.RUNNEL_UI_SCREENSHOT)
+      await page.screenshot({
+        path: process.env.RUNNEL_UI_SCREENSHOT.replace(
+          /\.png$/,
+          `-${size.width}-dialog-stop-manager.png`
+        ),
+      });
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  }
   // The navigation must remain in the document flow through scrolling and at each width.
   for (const size of [
     { width: 1440, height: 900 },
@@ -353,6 +399,13 @@ try {
       assert.equal(layout.left, 0);
       assert.equal(layout.position, "static");
       assert.equal(layout.scrollWidth <= layout.viewport, true);
+      const brandTop = await page
+        .locator(".brand")
+        .evaluate((el) => el.getBoundingClientRect().top);
+      assert.equal(Math.round(brandTop), size.width > 850 ? 24 : 12);
+      process.stdout.write(
+        `Layout ${size.width} ${name} top: ${JSON.stringify({ ...layout, brandTop, scrollY: await page.evaluate(() => scrollY) })}\n`
+      );
       if (process.env.RUNNEL_UI_SCREENSHOT)
         await page.screenshot({
           path: process.env.RUNNEL_UI_SCREENSHOT.replace(
@@ -361,7 +414,20 @@ try {
           ),
           fullPage: true,
         });
+      assert.equal(await page.evaluate(() => scrollY), 0);
+      assert.equal(
+        Math.round(await page.locator(".brand").evaluate((el) => el.getBoundingClientRect().top)),
+        size.width > 850 ? 24 : 12
+      );
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      const scrollMeasurement = await page
+        .locator(".sidebar-inner")
+        .evaluate((el) => ({ top: el.getBoundingClientRect().top, scrollY }));
+      if (size.width > 850 && scrollMeasurement.scrollY > 24)
+        assert.equal(Math.round(scrollMeasurement.top), 24);
+      process.stdout.write(
+        `Layout ${size.width} ${name} scroll: ${JSON.stringify(scrollMeasurement)}\n`
+      );
       if (process.env.RUNNEL_UI_SCREENSHOT && size.width >= 1280)
         await page.screenshot({
           path: process.env.RUNNEL_UI_SCREENSHOT.replace(
@@ -521,6 +587,22 @@ try {
     .getByText("Credential replaced after explicit live validation.", { exact: true })
     .waitFor();
   await page.getByRole("button", { name: "Runtime", exact: true }).click();
+  for (const size of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.getByRole("button", { name: "Stop database daemon", exact: true }).click();
+    if (process.env.RUNNEL_UI_SCREENSHOT)
+      await page.screenshot({
+        path: process.env.RUNNEL_UI_SCREENSHOT.replace(
+          /\.png$/,
+          `-${size.width}-dialog-stop-daemon.png`
+        ),
+      });
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.getByRole("button", { name: "Stop database daemon", exact: true }).click();
   await page
     .getByRole("dialog")
@@ -552,6 +634,83 @@ try {
   assert.deepEqual(consoleErrors, []);
   if (process.env.RUNNEL_UI_SCREENSHOT)
     await page.screenshot({ path: process.env.RUNNEL_UI_SCREENSHOT, fullPage: true });
+  if (process.env.RUNNEL_UI_SCREENSHOT) {
+    await page.getByRole("button", { name: "Environments", exact: true }).click();
+    const longName = "long_environment_name_for_layout_testing_12345678901234567890123";
+    for (const name of [longName, "development", "integration", "production", "staging"]) {
+      await page.getByRole("button", { name: "+ Add environment", exact: true }).click();
+      await page.getByLabel("Environment name", { exact: true }).fill(name);
+      await page
+        .getByLabel("MongoDB URI", { exact: true })
+        .fill("mongodb://synthetic:fixture@fixture.invalid/accounts");
+      await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+    }
+    await page.getByRole("button", { name: new RegExp(longName) }).click();
+    await page.getByRole("button", { name: "Add advanced connection" }).click();
+    await page
+      .getByLabel("Connection name", { exact: true })
+      .fill("long_connection_name_for_layout_testing_123456789012345678901234");
+    await page
+      .getByLabel("MongoDB URI", { exact: true })
+      .fill("mongodb://synthetic:fixture@fixture.invalid/accounts");
+    await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "+ Add alias" }).click();
+    await page
+      .getByLabel("Alias name", { exact: true })
+      .fill("long_alias_name_for_layout_testing_12345678901234567890123456789");
+    await page
+      .getByLabel("Physical database name", { exact: true })
+      .fill("long_database_name_for_layout_testing_1234567890123456789012345");
+    await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    for (const size of [
+      { width: 1440, height: 900 },
+      { width: 1280, height: 800 },
+      { width: 768, height: 1024 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(size);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true
+      );
+      await page.screenshot({
+        path: process.env.RUNNEL_UI_SCREENSHOT.replace(/\.png$/, `-${size.width}-dense.png`),
+        fullPage: true,
+      });
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByRole("button", { name: "Runtime", exact: true }).click();
+  }
+  if (process.env.RUNNEL_TASTE_INSPECTOR) {
+    const inspectUrl = (await requestFixture("pair")).url;
+    const inspector = spawn(
+      process.execPath,
+      [
+        process.env.RUNNEL_TASTE_INSPECTOR,
+        inspectUrl,
+        "--app",
+        "--widths",
+        "1440",
+        "--out",
+        process.env.RUNNEL_TASTE_OUTPUT,
+      ],
+      { env: process.env, stdio: ["ignore", "pipe", "pipe"] }
+    );
+    let report = "";
+    inspector.stdout.on("data", (data) => {
+      report += data;
+    });
+    inspector.stderr.on("data", (data) => {
+      report += data;
+    });
+    const code = await new Promise((resolve) => inspector.once("exit", resolve));
+    writeFileSync(join(process.env.RUNNEL_TASTE_OUTPUT, "run.log"), `exit ${code}\n${report}`);
+    process.stdout.write(`Taste inspector exit ${code}\n`);
+  }
   await sample("quiet-manager-before-idle-measurement");
   await pause(1000);
   await sample("quiet-manager-after-one-second");

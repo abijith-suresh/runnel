@@ -1672,3 +1672,126 @@ select {
     position: static;
   }
 }
+
+/* Compact environment controls and neutral interaction states. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #24657a;
+  outline-offset: 2px;
+}
+.nav-icon,
+.environment-arrow,
+.alias-arrow,
+.runtime-arrow {
+  color: #526068;
+}
+.section-caption > span {
+  background: #e9edef;
+  color: #39464d;
+}
+.text-button {
+  color: #294b59;
+  text-decoration: none;
+  font-weight: 500;
+  padding: 6px 8px;
+  border: 1px solid #c9d2d6;
+  border-radius: 4px;
+  background: #fff;
+}
+.text-button:hover:not(:disabled) {
+  color: #16262d;
+  background: #edf2f4;
+}
+.danger-text {
+  color: #a32d28;
+}
+.connection-actions {
+  gap: 8px;
+}
+.connection-info {
+  gap: 0;
+}
+.cli-help {
+  margin: 12px 0 20px;
+  color: #526068;
+  font-size: 13px;
+}
+.cli-help summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.cli-help p {
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.close-button {
+  color: #39464d;
+  min-width: 44px;
+  min-height: 44px;
+}
+@media (max-width: 640px) {
+  .topbar {
+    min-height: 42px;
+  }
+  .page-content {
+    padding-top: 16px;
+  }
+  .page-description {
+    margin-top: 4px;
+  }
+  .environment-toolbar {
+    margin: 16px 0 10px;
+  }
+  .environment-list {
+    padding-bottom: 0;
+  }
+  .environment-tab {
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+  .environment-detail {
+    padding: 16px;
+  }
+  .detail-heading .eyebrow {
+    display: none;
+  }
+  .cli-help {
+    margin: 8px 0 12px;
+  }
+  .connection-row {
+    padding: 12px 0;
+  }
+  .connection-actions {
+    margin-top: 8px;
+  }
+  .text-button {
+    min-height: 44px;
+  }
+  .section-heading {
+    padding-bottom: 8px;
+  }
+}
+.environment-tab > span:not(.environment-arrow) {
+  min-width: 0;
+  flex: 1;
+}
+.environment-tab strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sheet .sheet-context {
+  color: #526068;
+  overflow-wrap: anywhere;
+}
+.sheet .callout {
+  color: #684a14;
+  background: #fff8e7;
+  border-color: #e4d4a9;
+}
+input::placeholder {
+  color: #657279;
+}

@@ -424,9 +424,9 @@ function App() {
                 </h1>
                 <p class="page-description">
                   {view() === "connections"
-                    ? "Register a name and a hidden URI. Agents choose the database when they work."
+                    ? "Register an environment and MongoDB URI."
                     : view() === "settings"
-                      ? "Validated settings shared by the CLI and this manager."
+                      ? "Configure database worker behavior."
                       : "The manager and database daemon run independently. Status checks do not keep database pools alive."}
                 </p>
               </div>
@@ -538,14 +538,13 @@ function App() {
                           </div>
                           <span class="outline-badge">MongoDB</span>
                         </div>
-                        <div class="detail-explainer">
-                          <span aria-hidden="true">↳</span>
+                        <details class="cli-help">
+                          <summary>CLI usage</summary>
                           <p>
-                            Use <code>-e {environment.name} -d database_name</code> with the CLI.
-                            Optional aliases can point to a particular connection and physical
-                            database.
+                            Use <code>-e {environment.name} -d database_name</code> to select a
+                            physical database. Aliases can refer to a connection and database.
                           </p>
-                        </div>
+                        </details>
                         <div class="section-heading">
                           <h3>Connections</h3>
                           <button
@@ -561,9 +560,6 @@ function App() {
                           {(connection) => (
                             <div class="connection-row">
                               <div class="connection-info">
-                                <span class="connection-glyph" aria-hidden="true">
-                                  ◈
-                                </span>
                                 <div>
                                   <div class="connection-title">
                                     <strong>{connection.name}</strong>
@@ -729,11 +725,7 @@ function App() {
                         </div>
                         <Show
                           when={environment.databases.length > 0}
-                          fallback={
-                            <p class="quiet-empty">
-                              No aliases. Agents can use physical database names directly.
-                            </p>
-                          }
+                          fallback={<p class="quiet-empty">No aliases configured.</p>}
                         >
                           <For each={environment.databases}>
                             {(alias) => (
