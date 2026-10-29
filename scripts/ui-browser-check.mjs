@@ -231,7 +231,21 @@ try {
   assert.equal(initial.daemonPids.length, 0);
   const uri =
     "mongodb://synthetic:private-browser-value@fixture.invalid/accounts?authSource=authentication";
+  if (process.env.RUNNEL_UI_SCREENSHOT) {
+    await page.screenshot({
+      path: process.env.RUNNEL_UI_SCREENSHOT.replace(/\.png$/, "-empty.png"),
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "Add your first environment" }).focus();
+    await page.screenshot({
+      path: process.env.RUNNEL_UI_SCREENSHOT.replace(/\.png$/, "-focus.png"),
+    });
+  }
   await page.getByRole("button", { name: "Add your first environment" }).click();
+  if (process.env.RUNNEL_UI_SCREENSHOT)
+    await page.screenshot({
+      path: process.env.RUNNEL_UI_SCREENSHOT.replace(/\.png$/, "-register-dialog.png"),
+    });
   await page.getByLabel("Environment name", { exact: true }).fill("local");
   await page.getByLabel("MongoDB URI", { exact: true }).fill(uri);
   let releaseSave, mutationSent;
@@ -309,6 +323,51 @@ try {
       path: process.env.RUNNEL_UI_SCREENSHOT.replace(/\.png$/, "-settings.png"),
       fullPage: true,
     });
+  // The navigation must remain in the document flow through scrolling and at each width.
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 1280, height: 800 },
+    { width: 768, height: 1024 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    for (const name of ["Environments", "Settings", "Runtime"]) {
+      await page.getByRole("button", { name, exact: true }).click();
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const layout = await page.locator(".sidebar").evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          position: getComputedStyle(el).position,
+          scrollWidth: document.documentElement.scrollWidth,
+          viewport: innerWidth,
+        };
+      });
+      assert.equal(layout.top, 0);
+      assert.equal(layout.left, 0);
+      assert.equal(layout.position, "static");
+      assert.equal(layout.scrollWidth <= layout.viewport, true);
+      if (process.env.RUNNEL_UI_SCREENSHOT)
+        await page.screenshot({
+          path: process.env.RUNNEL_UI_SCREENSHOT.replace(
+            /\.png$/,
+            `-${size.width}-${name.toLowerCase()}.png`
+          ),
+          fullPage: true,
+        });
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      assert.equal(
+        await page
+          .locator(".sidebar")
+          .evaluate((el) => Math.abs(el.getBoundingClientRect().top + scrollY) < 1),
+        true
+      );
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   // Lose a response after the server has committed. The page must report uncertainty,
   // make no automatic replay, and recover the committed value through a read.
   let lostResponseCalls = 0;
@@ -321,6 +380,11 @@ try {
   await page.getByLabel(/^Script timeout/).fill("12346");
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "If the response was lost" }).waitFor();
+  if (process.env.RUNNEL_UI_SCREENSHOT)
+    await page.screenshot({
+      path: process.env.RUNNEL_UI_SCREENSHOT.replace(/\.png$/, "-error.png"),
+      fullPage: true,
+    });
   await pause(500);
   assert.equal(lostResponseCalls, 1);
   await page.unroute("**/api/operation");

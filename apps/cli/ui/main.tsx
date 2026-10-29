@@ -335,21 +335,9 @@ function App() {
   return (
     <div class="workbench">
       <aside class="sidebar" aria-label="Manager navigation">
-        <a
-          class="brand"
-          href="/"
-          onClick={(event) => event.preventDefault()}
-          aria-label="Runnel home"
-        >
-          <span class="brand-mark" aria-hidden="true">
-            r
-          </span>
-          <span>
-            runnel<span class="brand-caption">LOCAL MANAGER</span>
-          </span>
-        </a>
-        <div class="sidebar-rule" />
-        <p class="nav-label">WORKSPACE</p>
+        <div class="brand">
+          Runnel <span>Local manager</span>
+        </div>
         <nav>
           <For
             each={[
@@ -363,7 +351,11 @@ function App() {
                 type="button"
                 classList={{ "nav-item": true, active: view() === item.key }}
                 aria-current={view() === item.key ? "page" : undefined}
-                onClick={() => setView(item.key)}
+                onClick={() => {
+                  setView(item.key);
+                  setMessage("");
+                  setError("");
+                }}
               >
                 <span class="nav-icon" aria-hidden="true">
                   {item.icon}
@@ -373,18 +365,6 @@ function App() {
             )}
           </For>
         </nav>
-        <div class="sidebar-note">
-          <span class="connection-light" /> On this computer
-          <p>
-            Configuration stays local.
-            <br />
-            Credentials stay in your OS vault.
-          </p>
-        </div>
-        <div class="sidebar-bottom">
-          <span class="mono">127.0.0.1</span>
-          <span>HUMAN SETUP · AGENT ACCESS</span>
-        </div>
       </aside>
       <main>
         <header class="topbar">
@@ -433,19 +413,12 @@ function App() {
           <div class="page-content">
             <div class="page-heading">
               <div>
-                <p class="eyebrow">
-                  {view() === "connections"
-                    ? "SET UP ONCE. WORK BY NAME."
-                    : view() === "settings"
-                      ? "YOUR PREFERENCES"
-                      : "PROCESSES ON THIS COMPUTER"}
-                </p>
                 <h1>
                   {view() === "connections"
-                    ? "Your environments."
+                    ? "Environments"
                     : view() === "settings"
-                      ? "A few useful defaults."
-                      : "Know what is running."}
+                      ? "Settings"
+                      : "Runtime"}
                 </h1>
                 <p class="page-description">
                   {view() === "connections"
@@ -496,8 +469,8 @@ function App() {
                     <div class="empty-symbol" aria-hidden="true">
                       ◈
                     </div>
-                    <p class="eyebrow">A SMALL FIRST STEP</p>
-                    <h2>Give your connection a name.</h2>
+                    <p class="eyebrow">GET STARTED</p>
+                    <h2>No environments</h2>
                     <p>
                       Start with an environment such as <code>local</code> or <code>staging</code>{" "}
                       and its MongoDB URI. Saving is offline. No database list or alias is required.
@@ -839,8 +812,7 @@ function App() {
                 }}
               >
                 <div class="panel-title">
-                  <span class="section-caption">DATABASE WORKER</span>
-                  <h2>Limits with a clear clock.</h2>
+                  <h2>Database worker</h2>
                   <p>Changes do not interrupt work already in progress.</p>
                 </div>
                 <label class="setting-row">
@@ -912,12 +884,12 @@ function App() {
               <div class="runtime-grid">
                 <section class="runtime-card">
                   <div class="runtime-heading">
-                    <span class="section-caption">LOCAL MANAGER</span>
+                    <span class="section-caption">Manager status</span>
                     <span class="status-pill">
                       <span class="status-dot" /> Running
                     </span>
                   </div>
-                  <h2>This page's process.</h2>
+                  <h2>Manager</h2>
                   <p>
                     The foreground manager serves the bundled interface. Closing a tab does not stop
                     it.
@@ -951,12 +923,12 @@ function App() {
                 </section>
                 <section class="runtime-card">
                   <div class="runtime-heading">
-                    <span class="section-caption">DATABASE DAEMON</span>
+                    <span class="section-caption">Daemon status</span>
                     <span classList={{ "status-pill": true, stopped: !status().running }}>
                       <span class="status-dot" /> {status().running ? "Running" : "Stopped"}
                     </span>
                   </div>
-                  <h2>{status().running ? "Ready for database work." : "Starts when needed."}</h2>
+                  <h2>Database daemon</h2>
                   <p>
                     Only explicit database operations start the daemon and its worker. Opening this
                     manager does not.
@@ -1010,15 +982,6 @@ function App() {
                 </p>
               </div>
             </Show>
-            <footer class="page-footer">
-              <span>CONFIGURATION, NEVER DATABASE CONTENT</span>
-              <span>
-                Local by design{" "}
-                <span class="footer-arrow" aria-hidden="true">
-                  ↗
-                </span>
-              </span>
-            </footer>
           </div>
         </Show>
       </main>
