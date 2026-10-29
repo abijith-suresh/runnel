@@ -1879,3 +1879,39 @@ input::placeholder {
     min-height: 44px;
   }
 }
+
+/* Shared action geometry across section, row, and dialog controls. */
+.button,
+.text-button {
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.button.primary {
+  font-weight: 650;
+}
+.button.secondary,
+.button.subtle,
+.text-button {
+  border-color: #c9d2d6;
+  background: #fff;
+  color: #294b59;
+}
+.button.secondary:hover:not(:disabled),
+.button.subtle:hover:not(:disabled),
+.text-button:hover:not(:disabled) {
+  background: #edf2f4;
+  color: #16262d;
+}
+.text-button.danger-text {
+  color: #a32d28;
+}
+@media (max-width: 640px) {
+  .button,
+  .text-button {
+    min-height: 44px;
+  }
+}

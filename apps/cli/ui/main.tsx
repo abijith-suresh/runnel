@@ -58,6 +58,19 @@ function duration(ms: number) {
   return ms % 60000 === 0 ? `${ms / 60000} min` : `${ms} ms`;
 }
 
+function ObjectName(props: { value: string }) {
+  return (
+    <Show when={props.value.length > 32} fallback={<span>{props.value}</span>}>
+      <details class="object-name">
+        <summary>
+          <span>{props.value}</span>
+        </summary>
+        <code>{props.value}</code>
+      </details>
+    </Show>
+  );
+}
+
 function App() {
   const [phase, setPhase] = createSignal<"pairing" | "locked" | "ready" | "stopped">("pairing");
   const [view, setView] = createSignal<"connections" | "settings" | "runtime">("connections");
@@ -369,19 +382,6 @@ function App() {
         </div>
       </aside>
       <main>
-        <header class="topbar">
-          <span class="crumb">
-            Runnel <span aria-hidden="true">/</span>{" "}
-            {view() === "connections"
-              ? "Environments"
-              : view() === "settings"
-                ? "Settings"
-                : "Runtime"}
-          </span>
-          <span class="local-badge">
-            <span /> Local session
-          </span>
-        </header>
         <Show
           when={phase() === "ready"}
           fallback={
@@ -427,7 +427,7 @@ function App() {
                     ? "Register an environment and MongoDB URI."
                     : view() === "settings"
                       ? "Configure database worker behavior."
-                      : "The manager and database daemon run independently. Status checks do not keep database pools alive."}
+                      : "Manage the manager and database daemon separately."}
                 </p>
               </div>
               <button
@@ -555,17 +555,10 @@ function App() {
                       >
                         <div class="detail-heading">
                           <div>
-                            <p class="eyebrow">ENVIRONMENT</p>
                             <h2>
-                              <details class="object-name">
-                                <summary>
-                                  <span>{environment.name}</span>
-                                </summary>
-                                <code>{environment.name}</code>
-                              </details>
+                              <ObjectName value={environment.name} />
                             </h2>
                           </div>
-                          <span class="outline-badge">MongoDB</span>
                         </div>
                         <details class="cli-help">
                           <summary>CLI usage</summary>
@@ -592,12 +585,7 @@ function App() {
                                 <div>
                                   <div class="connection-title">
                                     <strong>
-                                      <details class="object-name">
-                                        <summary>
-                                          <span>{connection.name}</span>
-                                        </summary>
-                                        <code>{connection.name}</code>
-                                      </details>
+                                      <ObjectName value={connection.name} />
                                     </strong>
                                     <Show when={connection.default}>
                                       <span class="default-badge">Default</span>
@@ -768,31 +756,15 @@ function App() {
                               <div class="alias-row">
                                 <div>
                                   <strong>
-                                    <details class="object-name">
-                                      <summary>
-                                        <span>{alias.name}</span>
-                                      </summary>
-                                      <code>{alias.name}</code>
-                                    </details>
+                                    <ObjectName value={alias.name} />
                                   </strong>
                                   <span class="alias-arrow" aria-hidden="true">
                                     {" "}
                                     →{" "}
                                   </span>
-                                  <details class="object-name">
-                                    <summary>
-                                      <span>{alias.database}</span>
-                                    </summary>
-                                    <code>{alias.database}</code>
-                                  </details>
+                                  <ObjectName value={alias.database} />
                                   <small>
-                                    via{" "}
-                                    <details class="object-name">
-                                      <summary>
-                                        <span>{alias.connection}</span>
-                                      </summary>
-                                      <code>{alias.connection}</code>
-                                    </details>
+                                    via <ObjectName value={alias.connection} />
                                   </small>
                                 </div>
                                 <div class="row-actions">
@@ -829,10 +801,6 @@ function App() {
                             )}
                           </For>
                         </Show>
-                        <p class="detail-footnote">
-                          Saving configuration never opens a database connection. Test and discovery
-                          run only when you choose them.
-                        </p>
                       </section>
                     )}
                   </Show>
@@ -921,9 +889,6 @@ function App() {
                   <span class="sr-only">Enable operation history</span>
                 </label>
                 <div class="panel-footer">
-                  <p>
-                    CLI equivalent: <code>runnel settings set</code>
-                  </p>
                   <button type="submit" class="button primary" disabled={busy()}>
                     {busy() ? "Saving…" : "Save settings"}
                   </button>
@@ -940,22 +905,10 @@ function App() {
                     </span>
                   </div>
                   <h2>Manager</h2>
-                  <p>
-                    The foreground manager serves the bundled interface. Closing a tab does not stop
-                    it.
-                  </p>
                   <dl>
-                    <div>
-                      <dt>Session</dt>
-                      <dd>Memory only</dd>
-                    </div>
                     <div>
                       <dt>Expires</dt>
                       <dd>{new Date(expiresAt()).toLocaleTimeString()}</dd>
-                    </div>
-                    <div>
-                      <dt>Browser opening</dt>
-                      <dd>Explicit opt-in</dd>
                     </div>
                   </dl>
                   <button
@@ -979,10 +932,6 @@ function App() {
                     </span>
                   </div>
                   <h2>Database daemon</h2>
-                  <p>
-                    Only explicit database operations start the daemon and its worker. Opening this
-                    manager does not.
-                  </p>
                   <dl>
                     <div>
                       <dt>Daemon process</dt>
@@ -1021,15 +970,6 @@ function App() {
                     Windows, worker termination can be forced.
                   </small>
                 </section>
-              </div>
-              <div class="runtime-note">
-                <span class="runtime-arrow" aria-hidden="true">
-                  ↳
-                </span>
-                <p>
-                  Status polling reads process metadata. It does not access the credential vault,
-                  connect to MongoDB or renew database idle time.
-                </p>
               </div>
             </Show>
           </div>
