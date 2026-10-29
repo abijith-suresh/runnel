@@ -335,36 +335,38 @@ function App() {
   return (
     <div class="workbench">
       <aside class="sidebar" aria-label="Manager navigation">
-        <div class="brand">
-          Runnel <span>Local manager</span>
+        <div class="sidebar-inner">
+          <div class="brand">
+            Runnel <span>Local manager</span>
+          </div>
+          <nav>
+            <For
+              each={[
+                { key: "connections" as const, label: "Environments", icon: "◈" },
+                { key: "settings" as const, label: "Settings", icon: "≡" },
+                { key: "runtime" as const, label: "Runtime", icon: "○" },
+              ]}
+            >
+              {(item) => (
+                <button
+                  type="button"
+                  classList={{ "nav-item": true, active: view() === item.key }}
+                  aria-current={view() === item.key ? "page" : undefined}
+                  onClick={() => {
+                    setView(item.key);
+                    setMessage("");
+                    setError("");
+                  }}
+                >
+                  <span class="nav-icon" aria-hidden="true">
+                    {item.icon}
+                  </span>
+                  {item.label}
+                </button>
+              )}
+            </For>
+          </nav>
         </div>
-        <nav>
-          <For
-            each={[
-              { key: "connections" as const, label: "Environments", icon: "◈" },
-              { key: "settings" as const, label: "Settings", icon: "≡" },
-              { key: "runtime" as const, label: "Runtime", icon: "○" },
-            ]}
-          >
-            {(item) => (
-              <button
-                type="button"
-                classList={{ "nav-item": true, active: view() === item.key }}
-                aria-current={view() === item.key ? "page" : undefined}
-                onClick={() => {
-                  setView(item.key);
-                  setMessage("");
-                  setError("");
-                }}
-              >
-                <span class="nav-icon" aria-hidden="true">
-                  {item.icon}
-                </span>
-                {item.label}
-              </button>
-            )}
-          </For>
-        </nav>
       </aside>
       <main>
         <header class="topbar">

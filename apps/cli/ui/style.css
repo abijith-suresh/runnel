@@ -1662,3 +1662,13 @@ select {
     font-size: 14px;
   }
 }
+
+.sidebar-inner {
+  position: sticky;
+  top: 24px;
+}
+@media (max-width: 850px) {
+  .sidebar-inner {
+    position: static;
+  }
+}
