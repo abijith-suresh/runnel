@@ -17,7 +17,7 @@ permissions:
 jobs:
   npm-quality:
     name: npm quality
-    uses: abijith-suresh/workflows/.github/workflows/npm-quality.yml@0424bd486ad1c3e0bbb4d206886dec114872eb68 # shared root contract
+    uses: abijith-suresh/workflows/.github/workflows/npm-quality.yml@c299f85c6c0c73fff9b2a1e420484f5bdb482ff1 # v0.9.0
     permissions:
       contents: read
 
@@ -92,7 +92,7 @@ jobs:
   pr-title:
     name: PR title
     if: github.event_name == 'pull_request'
-    uses: abijith-suresh/workflows/.github/workflows/conventional-commit-title.yml@0424bd486ad1c3e0bbb4d206886dec114872eb68 # shared title policy
+    uses: abijith-suresh/workflows/.github/workflows/conventional-commit-title.yml@c299f85c6c0c73fff9b2a1e420484f5bdb482ff1 # v0.9.0
     permissions:
       pull-requests: read
 
